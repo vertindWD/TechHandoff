@@ -1,0 +1,32 @@
+services:
+  app:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_PATH: /app/data/tracker.db
+      OUTPUT_DIR: /app/data/proposals
+      PROJECTS_FILE: /app/config/projects.json
+      FEISHU_BOTS_FILE: /app/config/feishu-bots.json
+      ALLOWED_REPO_ROOTS: /app/examples
+    ports:
+      - "127.0.0.1:18787:8787"
+    volumes:
+      - tracker-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  tracker-data:

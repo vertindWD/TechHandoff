@@ -1,0 +1,12 @@
+{
+  "bots": [
+    {
+      "bot_id": "project-tracker-bot",
+      "callback_key": "project-tracker",
+      "transport": "websocket",
+      "app_id_env": "FEISHU_PROJECT_TRACKER_APP_ID",
+      "app_secret_env": "FEISHU_PROJECT_TRACKER_APP_SECRET",
+      "tenant_domain": "https://your-company.feishu.cn"
+    }
+  ]
+}

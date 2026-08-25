@@ -1,0 +1,16 @@
+{
+  "projects": [
+    {
+      "project_id": "your-project",
+      "name": "你的项目",
+      "aliases": ["项目简称"],
+      "github_repository": "your-org/your-repo",
+      "github_ref": "main",
+      "owners": ["研发负责人"],
+      "allowed_paths": ["frontend", "backend"],
+      "forbidden_paths": [".env", ".env.*", "secrets", "secrets/*", "production", "production/*"],
+      "test_commands": ["pytest -q"]
+    }
+  ]
+}
+

@@ -1,0 +1,16 @@
+{
+  "projects": [
+    {
+      "project_id": "order-system",
+      "name": "订单系统（样例）",
+      "aliases": ["订单系统", "订单"],
+      "repo_path": "../examples/sample-repo",
+      "default_branch": "main",
+      "owners": ["样例研发负责人"],
+      "allowed_paths": ["frontend", "backend"],
+      "forbidden_paths": [".env", ".env.*", "secrets", "secrets/*", "production", "production/*"],
+      "test_commands": ["python -m unittest discover -s backend/tests"]
+    }
+  ]
+}
+

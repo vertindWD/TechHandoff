@@ -1,0 +1,9 @@
+.env
+config/feishu-bots.json
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+.tools/
+data/
