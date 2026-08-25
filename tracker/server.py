@@ -526,7 +526,7 @@ class TrackerApplication:
 
 def make_handler(application: TrackerApplication):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "ProjectTracker/0.4"
+        server_version = "TechHandoff/0.6"
 
         def _raw_body(self) -> bytes:
             length = int(self.headers.get("Content-Length", "0"))
@@ -694,7 +694,7 @@ def run_server(settings: Settings, host: str = "127.0.0.1", port: int = 8787) ->
     application = TrackerApplication(settings)
     long_connection = application.feishu_long_connections.start()
     server = ThreadingHTTPServer((host, port), make_handler(application))
-    print(f"Project Tracker Agent listening on http://{host}:{port}", flush=True)
+    print(f"TechHandoff listening on http://{host}:{port}", flush=True)
     if long_connection["configured_count"]:
         print(
             "Feishu long connections: "

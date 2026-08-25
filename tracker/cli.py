@@ -15,7 +15,7 @@ def _settings() -> Settings:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Project Tracker Agent")
+    parser = argparse.ArgumentParser(description="TechHandoff")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("init", help="初始化数据库并导入 PROJECTS_FILE")

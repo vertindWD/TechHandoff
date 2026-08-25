@@ -1,8 +1,8 @@
 {
   "bots": [
     {
-      "bot_id": "project-tracker-bot",
-      "callback_key": "project-tracker",
+      "bot_id": "tech-handoff-bot",
+      "callback_key": "tech-handoff",
       "transport": "websocket",
       "app_id_env": "FEISHU_PROJECT_TRACKER_APP_ID",
       "app_secret_env": "FEISHU_PROJECT_TRACKER_APP_SECRET",

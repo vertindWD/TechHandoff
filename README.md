@@ -1,4 +1,4 @@
-# Project Tracker Agent
+# TechHandoff
 
 **面向产品与研发团队的只读技术方案机器人。将飞书中的需求或会议纪要转换为基于当前 GitHub 代码的改动建议。**
 
@@ -6,7 +6,7 @@
 [![Feishu](https://img.shields.io/badge/Feishu-WebSocket-3370FF)](https://open.feishu.cn/)
 [![GitHub](https://img.shields.io/badge/GitHub-read--only-181717?logo=github)](https://github.com/)
 
-Project Tracker Agent 连接飞书、GitHub 与 OpenAI-compatible 模型。收到需求后，它会调查已绑定项目的真实代码，定位相关文件和符号，分析调用关系、测试范围与风险，并生成研发可以继续评审的技术方案。
+TechHandoff 连接飞书、GitHub 与 OpenAI-compatible 模型。收到需求后，它会调查已绑定项目的真实代码，定位相关文件和符号，分析调用关系、测试范围与风险，并生成研发可以继续评审的技术方案。
 
 项目严格保持只读：不修改代码，不创建分支或 PR，不执行部署。
 
@@ -22,7 +22,7 @@ Project Tracker Agent 连接飞书、GitHub 与 OpenAI-compatible 模型。收�
 - 代码更新后，旧方案中的位置可能已经失效；
 - 多项目共用机器人时，代码与历史决策容易混入错误会话。
 
-Project Tracker Agent 将这些问题拆成项目绑定、版本化索引、只读代码调查和项目级记忆四个部分。它的目标不是生成泛化的架构建议，而是回答：**在当前版本的这个项目中，这项需求应从哪里开始改，可能涉及哪些位置，依据是什么。**
+TechHandoff 将这些问题拆成项目绑定、版本化索引、只读代码调查和项目级记忆四个部分。它的目标不是生成泛化的架构建议，而是回答：**在当前版本的这个项目中，这项需求应从哪里开始改，可能涉及哪些位置，依据是什么。**
 
 ## 主要能力
 
@@ -199,8 +199,8 @@ curl --noproxy '*' -fsS http://127.0.0.1:8787/health
 {
   "bots": [
     {
-      "bot_id": "project-tracker-bot",
-      "callback_key": "project-tracker",
+      "bot_id": "tech-handoff-bot",
+      "callback_key": "tech-handoff",
       "transport": "websocket",
       "app_id_env": "FEISHU_PROJECT_TRACKER_APP_ID",
       "app_secret_env": "FEISHU_PROJECT_TRACKER_APP_SECRET",
