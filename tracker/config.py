@@ -63,6 +63,7 @@ class Settings:
     semantic_data_dir: Path | None = None
     semantic_max_index_chars: int = 250000
     semantic_max_sessions: int = 2
+    semantic_max_languages: int = 6
     gopls_path: Path | None = None
     go_binary_path: Path | None = None
     model_json_retries: int = 2
@@ -109,6 +110,10 @@ class Settings:
             semantic_max_sessions=max(
                 1,
                 min(int(os.getenv("SEMANTIC_MAX_SESSIONS", "2")), 8),
+            ),
+            semantic_max_languages=max(
+                1,
+                min(int(os.getenv("SEMANTIC_MAX_LANGUAGES", "6")), 12),
             ),
             gopls_path=Path(os.getenv("GOPLS_PATH", ".tools/bin/gopls")).resolve(),
             go_binary_path=(

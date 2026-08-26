@@ -110,7 +110,7 @@ class SerenaAnalyzer:
 
     def can_analyze(self, relative_path: str) -> bool:
         suffix = Path(relative_path).suffix.casefold()
-        return any(suffix in _LANGUAGE_EXTENSIONS.get(server, ()) for server in self.language_servers)
+        return any(suffix in _analysis_extensions(server) for server in self.language_servers)
 
     def build_project_understanding(
         self,
@@ -199,6 +199,7 @@ class SerenaSemanticManager:
         gopls_path: Path | None = None,
         max_sessions: int = 2,
         go_binary_path: Path | None = None,
+        max_languages: int = 6,
     ) -> None:
         self.data_dir = data_dir.resolve()
         self.workspace_dir = self.data_dir / "snapshots"
@@ -228,6 +229,7 @@ class SerenaSemanticManager:
             os.environ.setdefault("GOTOOLCHAIN", "local")
 
         self.max_sessions = max(1, min(max_sessions, 8))
+        self.max_languages = max(1, min(max_languages, 12))
         self._sessions: OrderedDict[str, SerenaAnalyzer] = OrderedDict()
         self._lock = threading.RLock()
 
@@ -318,7 +320,11 @@ class SerenaSemanticManager:
         except ImportError as exc:
             raise SemanticAnalysisError("未安装 serena-agent") from exc
 
-        language_servers = _detect_language_servers(files, LanguageServerId)
+        language_servers = _detect_language_servers(
+            files,
+            LanguageServerId,
+            max_languages=self.max_languages,
+        )
         if not language_servers:
             raise SemanticAnalysisError("仓库中没有检测到当前已支持的语义语言")
         project_config = ProjectConfig(
@@ -348,30 +354,117 @@ class SerenaSemanticManager:
 
 
 _LANGUAGE_EXTENSIONS: dict[str, tuple[str, ...]] = {
-    "go": (".go",),
-    "python": (".py", ".pyi"),
-    "typescript": (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts"),
-    "java": (".java",),
-    "rust": (".rs",),
-    "kotlin": (".kt", ".kts"),
+    "ada": (".adb", ".ads"),
+    "al": (".al",),
+    "bash": (".sh", ".bash", ".zsh"),
+    "bsl": (".bsl", ".os"),
+    "clojure": (".clj", ".cljs", ".cljc"),
+    "cpp": (".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"),
+    "crystal": (".cr",),
     "csharp": (".cs",),
-    "cpp": (".c", ".cc", ".cpp", ".cxx", ".h", ".hpp"),
-    "ruby": (".rb",),
+    "cue": (".cue",),
+    "dart": (".dart",),
+    "elixir": (".ex", ".exs"),
+    "elm": (".elm",),
+    "erlang": (".erl", ".hrl"),
+    "fortran": (".f", ".for", ".f90", ".f95", ".f03", ".f08"),
+    "fsharp": (".fs", ".fsi", ".fsx"),
+    "gdscript": (".gd",),
+    "gleam": (".gleam",),
+    "go": (".go",),
+    "groovy": (".groovy",),
+    "haskell": (".hs", ".lhs"),
+    "haxe": (".hx",),
+    "hlsl": (".hlsl", ".glsl", ".vert", ".frag", ".wgsl"),
+    "html": (".html", ".htm"),
+    "java": (".java",),
+    "julia": (".jl",),
+    "kotlin": (".kt",),
+    "latex": (".tex", ".bib"),
+    "lean4": (".lean",),
+    "lua": (".lua",),
+    "luau": (".luau",),
+    "matlab": (".m",),
+    "msl": (".msl",),
+    "nextflow": (".nf",),
+    "nix": (".nix",),
+    "ocaml": (".ml", ".mli"),
+    "pascal": (".pas", ".pp"),
+    "perl": (".pl", ".pm"),
     "php": (".php",),
+    "powershell": (".ps1", ".psm1", ".psd1"),
+    "python": (".py", ".pyi"),
+    "qml": (".qml",),
+    "r": (".r",),
+    "rego": (".rego",),
+    "ruby": (".rb",),
+    "rust": (".rs",),
+    "scala": (".scala", ".sc"),
+    "scss": (".scss", ".sass", ".css"),
+    "solidity": (".sol",),
+    "svelte": (".svelte",),
+    "swift": (".swift",),
+    "systemverilog": (".sv", ".svh", ".v", ".vh"),
+    "terraform": (".tf", ".tfvars"),
+    "toml": (".toml",),
+    "typescript": (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"),
+    "vue": (".vue",),
+    "wolfram": (".wl", ".wls"),
+    "yaml": (".yaml", ".yml"),
+    "zig": (".zig",),
 }
 
+_FRAMEWORK_MANIFESTS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "angular": ("typescript", ("angular.json",)),
+    "deno": ("typescript", ("deno.json", "deno.jsonc")),
+}
 
-def _detect_language_servers(files: tuple[SourceFile, ...], enum_type) -> tuple:
+_FRAMEWORK_REPLACEMENTS: dict[str, str] = {
+    "svelte": "typescript",
+    "vue": "typescript",
+}
+
+_ANALYSIS_EXTENSION_OVERRIDES: dict[str, tuple[str, ...]] = {
+    "angular": (".ts", ".tsx", ".js", ".jsx", ".html", ".css", ".scss"),
+    "deno": _LANGUAGE_EXTENSIONS["typescript"],
+    "svelte": (".svelte", *_LANGUAGE_EXTENSIONS["typescript"]),
+    "vue": (".vue", *_LANGUAGE_EXTENSIONS["typescript"]),
+}
+
+_SECONDARY_LANGUAGES = {"html", "scss", "toml", "yaml"}
+
+
+def _analysis_extensions(language: str) -> tuple[str, ...]:
+    return _ANALYSIS_EXTENSION_OVERRIDES.get(language, _LANGUAGE_EXTENSIONS.get(language, ()))
+
+
+def _detect_language_servers(
+    files: tuple[SourceFile, ...],
+    enum_type,
+    max_languages: int = 6,
+) -> tuple:
     counts: dict[str, int] = {}
+    file_names = {Path(source.path).name.casefold() for source in files}
     for source in files:
         suffix = Path(source.path).suffix.casefold()
         for language, extensions in _LANGUAGE_EXTENSIONS.items():
             if suffix in extensions:
                 counts[language] = counts.get(language, 0) + 1
                 break
-    # Limit one snapshot to its three dominant languages to keep local resource
-    # use bounded without limiting the model's investigation steps.
-    selected = sorted(counts, key=lambda item: (-counts[item], item))[:3]
+
+    for framework, (replaced, manifests) in _FRAMEWORK_MANIFESTS.items():
+        if any(manifest in file_names for manifest in manifests) and replaced in counts:
+            counts[framework] = counts.pop(replaced)
+    for framework, replaced in _FRAMEWORK_REPLACEMENTS.items():
+        if framework in counts and replaced in counts:
+            counts[framework] += counts.pop(replaced)
+
+    # Code languages are preferred over config/markup servers. The cap keeps a
+    # polyglot monorepo from starting every detected server at once.
+    selected = sorted(
+        counts,
+        key=lambda item: (item in _SECONDARY_LANGUAGES, -counts[item], item),
+    )[: max(1, max_languages)]
     by_value = {item.value: item for item in enum_type}
     return tuple(by_value[item] for item in selected if item in by_value)
 

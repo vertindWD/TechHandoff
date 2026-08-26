@@ -34,7 +34,7 @@ TechHandoff 将这些问题拆成项目绑定、版本化索引、只读代码�
 | 项目级长期记忆 | 产品决定、技术约束、代码事实和历史方案按项目隔离存储 |
 | 增量同步 | 首次建立完整索引，后续根据 GitHub Tree/blob SHA 更新变化文件 |
 | 语言无关的仓库读取 | 读取任意扩展名的文本源码与配置；通过内容检测排除二进制文件 |
-| 语义代码导航 | 对可用语言使用 Serena、语言服务器或 Tree-sitter 增强符号定位；其他语言仍可读取和搜索 |
+| 语义代码导航 | 自动检测项目语言并启动对应服务器；Java、Go、Python、TypeScript、Rust、C/C++ 等均可获得符号级导航 |
 | 飞书文档输出 | 支持读取会议纪要文档，并将技术方案创建为飞书文档后回发会话 |
 | 只读安全边界 | 无代码写入、Git 操作、PR、合并或部署工具；路径和工具调用均受白名单限制 |
 
@@ -113,7 +113,9 @@ CRM 项目群  ──> crm          ──> 独立代码索引、记忆、方案
 
 首次同步会为当前 commit 建立隔离快照和项目地图。源码读取不限定编程语言或文件扩展名；只要文件通过大小、安全路径和文本内容检测，就可以进入只读调查。缓存不会写入用户仓库。
 
-对于 Serena、语言服务器或 Tree-sitter 能识别的语言，项目地图会进一步记录类、函数、方法、定义和引用。暂时没有语义后端的语言仍保留完整文件清单、源码读取和文本搜索能力，模型可以继续调查，但符号级定位的可信度会相应降低。
+对于 Serena、语言服务器或 Tree-sitter 能识别的语言，项目地图会进一步记录类、函数、方法、定义和引用。TechHandoff 会从文件类型和项目清单自动识别语言，例如 Java 使用 JDTLS、Go 使用 gopls、Python 使用 Pyright、JavaScript/TypeScript 使用 TypeScript Language Server。暂时没有语义后端的语言仍保留完整文件清单、源码读取和文本搜索能力，模型可以继续调查，但符号级定位的可信度会相应降低。
+
+Serena 当前支持 40 多种语言。TechHandoff 默认按源码数量选择项目中最多 6 种语言服务器，可通过 `SEMANTIC_MAX_LANGUAGES` 调整；不会为一个仓库启动所有服务器。Angular、Deno、Svelte 和 Vue 项目会优先选择对应的框架语言服务器，避免与通用 TypeScript 服务重复。
 
 后续生成方案时，模型先读取当前版本的项目地图，再按需求调查相关代码。代码更新后会创建新快照，依赖旧版本的代码事实与方案被标记为过期，已确认的产品决定继续保留。
 
@@ -143,12 +145,14 @@ cp .env.example .env
 cp config/feishu-bots.example.json config/feishu-bots.json
 ```
 
-无需为某种语言单独安装 TechHandoff。若希望获得更准确的定义和引用导航，可按目标项目的语言安装对应语言服务器。例如，分析 Go 项目时可选安装 `gopls`：
+大部分语言服务器由 Serena 按需管理。少数语言需要本机工具链，例如 Go 需要 `gopls`：
 
 ```bash
 mkdir -p .tools/bin
 GOBIN="$PWD/.tools/bin" go install golang.org/x/tools/gopls@v0.23.0
 ```
+
+Python 默认使用 Pyright；Java 默认使用 JDTLS，首次使用可能需要下载较大的运行包；Java 项目建议准备 JDK 21。未能启动语言服务器时，任务会降级到项目地图、源码读取和只读搜索，而不是拒绝读取仓库。
 
 ### 最小配置
 

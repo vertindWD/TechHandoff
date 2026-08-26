@@ -75,6 +75,7 @@ class TrackerService:
                 settings.gopls_path,
                 settings.semantic_max_sessions,
                 settings.go_binary_path,
+                settings.semantic_max_languages,
             )
             if settings.semantic_enabled and settings.semantic_data_dir
             else None
