@@ -133,8 +133,8 @@ CRM 项目群  ──> crm          ──> 独立代码索引、记忆、方案
 ### 安装
 
 ```bash
-git clone https://github.com/vertindWD/project-tracker-agent.git
-cd project-tracker-agent
+git clone https://github.com/vertindWD/TechHandoff.git
+cd TechHandoff
 
 python3 -m venv .venv
 .venv/bin/pip install -e .
