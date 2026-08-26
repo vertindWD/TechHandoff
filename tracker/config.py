@@ -132,7 +132,9 @@ class Settings:
 
     @property
     def model_enabled(self) -> bool:
-        return bool(self.model_base_url and self.model_api_key and self.model_name)
+        # LiteLLM can load provider-specific credentials such as
+        # DASHSCOPE_API_KEY and DEEPSEEK_API_KEY from the environment.
+        return bool(self.model_name)
 
     @property
     def feishu_enabled(self) -> bool:

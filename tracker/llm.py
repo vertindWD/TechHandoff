@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
-import urllib.error
-import urllib.request
-from hashlib import sha256
+from typing import Any
 
 from .models import Evidence, Requirement
 
@@ -35,51 +34,101 @@ class OpenAICompatibleModel:
     ) -> dict:
         output_error: Exception | None = None
         for attempt in range(self.json_retries + 1):
-            payload = {
-                "model": self.model_name,
-                "messages": messages,
-                "temperature": temperature,
-                "stream": False,
-                "response_format": {"type": "json_object"},
-                "max_tokens": 4096,
-            }
-            request = urllib.request.Request(
-                f"{self.base_url}/chat/completions",
-                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                method="POST",
-            )
             try:
-                with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                    raw_body = response.read().decode("utf-8-sig", errors="replace")
-                body = self._parse_response_body(raw_body)
+                body = self._call_litellm(self.model_name, messages, temperature)
                 choice = body["choices"][0]
                 message = choice["message"]
                 content = message.get("content")
                 if not isinstance(content, str) or not content.strip():
                     finish_reason = str(choice.get("finish_reason") or "unknown")
-                    reasoning_present = bool(message.get("reasoning_content"))
+                    reasoning_present = bool(
+                        message.get("reasoning_content") or message.get("reasoning")
+                    )
                     raise ValueError(
                         "模型返回空 content "
                         f"(finish_reason={finish_reason}, reasoning_present={reasoning_present})"
                     )
                 return self._parse_json(content)
-            except urllib.error.HTTPError as exc:
-                detail = self._http_error_detail(exc)
-                raise ModelError(f"模型 HTTP {exc.code}：{detail}") from exc
-            except (urllib.error.URLError, TimeoutError) as exc:
-                raise ModelError(f"模型连接失败：{exc}") from exc
             except (KeyError, IndexError, TypeError, ValueError) as exc:
                 output_error = exc
                 if attempt < self.json_retries:
                     continue
+            except Exception as exc:
+                raise ModelError(
+                    f"模型调用失败（{self.model_name}）：{self._safe_error(exc)}"
+                ) from exc
         assert output_error is not None
         raise ModelError(
-            f"模型连续 {self.json_retries + 1} 次返回空或非法 JSON：{output_error}"
+            f"模型连续 {self.json_retries + 1} 次返回空或非法 JSON："
+            f"{self._safe_error(output_error)}"
         ) from output_error
+
+    def _call_litellm(
+        self,
+        model_name: str,
+        messages: list[dict[str, str]],
+        temperature: float,
+    ) -> dict[str, Any]:
+        try:
+            from litellm import completion
+        except ImportError as exc:
+            raise ModelError("缺少 litellm 依赖，请重新执行 pip install -e .") from exc
+
+        kwargs: dict[str, Any] = {
+            "model": model_name,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": False,
+            "response_format": {"type": "json_object"},
+            "timeout": self.timeout,
+            "num_retries": 0,
+            "drop_params": True,
+        }
+        if self.base_url:
+            kwargs["api_base"] = self.base_url
+        api_key = self._api_key_for(model_name)
+        if api_key:
+            kwargs["api_key"] = api_key
+
+        normalized = model_name.casefold()
+        if normalized.startswith(("dashscope/qwen", "qwen/")):
+            # Qwen JSON Object output is more stable with thinking disabled.
+            kwargs["enable_thinking"] = False
+        else:
+            kwargs["max_tokens"] = 4096
+
+        response = completion(**kwargs)
+        if isinstance(response, dict):
+            return response
+        model_dump = getattr(response, "model_dump", None)
+        if callable(model_dump):
+            value = model_dump()
+            if isinstance(value, dict):
+                return value
+        raise ValueError("LiteLLM 返回了无法识别的响应对象")
+
+    def _api_key_for(self, model_name: str) -> str:
+        if model_name == self.model_name and self.api_key:
+            return self.api_key
+        provider = model_name.partition("/")[0].casefold()
+        variables = {
+            "dashscope": ("DASHSCOPE_API_KEY",),
+            "deepseek": ("DEEPSEEK_API_KEY",),
+            "moonshot": ("MOONSHOT_API_KEY",),
+            "zai": ("ZAI_API_KEY", "ZHIPUAI_API_KEY"),
+            "zhipu": ("ZHIPUAI_API_KEY", "ZAI_API_KEY"),
+            "minimax": ("MINIMAX_API_KEY",),
+            "volcengine": ("ARK_API_KEY",),
+            "siliconflow": ("SILICONFLOW_API_KEY",),
+            "openai": ("OPENAI_API_KEY",),
+            "anthropic": ("ANTHROPIC_API_KEY",),
+            "gemini": ("GEMINI_API_KEY",),
+            "openrouter": ("OPENROUTER_API_KEY",),
+        }.get(provider, ())
+        return next(
+            (value for name in variables if (value := os.getenv(name, "").strip())),
+            "",
+        )
 
     def refine_requirement(
         self,
@@ -156,36 +205,13 @@ class OpenAICompatibleModel:
             raise ValueError("模型结果不是 JSON 对象")
         return value
 
-    @staticmethod
-    def _parse_response_body(raw_body: str) -> dict:
-        cleaned = raw_body.strip()
-        if not cleaned:
-            raise ValueError("模型服务返回空 HTTP 响应体")
-        try:
-            value = json.loads(cleaned)
-        except json.JSONDecodeError as exc:
-            fingerprint = sha256(cleaned.encode("utf-8", errors="replace")).hexdigest()[:12]
-            raise ValueError(
-                f"模型 HTTP 响应不是 JSON (chars={len(cleaned)}, sha256={fingerprint})"
-            ) from exc
-        if not isinstance(value, dict):
-            raise ValueError("模型 HTTP 响应不是 JSON 对象")
-        return value
-
-    @staticmethod
-    def _http_error_detail(exc: urllib.error.HTTPError) -> str:
-        try:
-            raw = exc.read().decode("utf-8-sig", errors="replace").strip()
-            data = json.loads(raw)
-            if isinstance(data, dict):
-                error = data.get("error")
-                if isinstance(error, dict) and error.get("message"):
-                    return str(error["message"])[:500]
-                if data.get("message"):
-                    return str(data["message"])[:500]
-        except Exception:
-            pass
-        return str(exc.reason or "请求被模型服务拒绝")[:500]
+    def _safe_error(self, exc: Exception) -> str:
+        detail = str(exc).strip() or type(exc).__name__
+        keys = {self.api_key, self._api_key_for(self.model_name)}
+        for api_key in keys:
+            if api_key:
+                detail = detail.replace(api_key, "[redacted]")
+        return detail[:500]
 
     @staticmethod
     def _text(value: object) -> str:

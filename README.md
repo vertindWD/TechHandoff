@@ -6,7 +6,7 @@
 [![Feishu](https://img.shields.io/badge/Feishu-WebSocket-3370FF)](https://open.feishu.cn/)
 [![GitHub](https://img.shields.io/badge/GitHub-read--only-181717?logo=github)](https://github.com/)
 
-TechHandoff 连接飞书、GitHub 与 OpenAI-compatible 模型。收到需求后，它会调查已绑定项目的真实代码，定位相关文件和符号，分析调用关系、测试范围与风险，并生成研发可以继续评审的技术方案。
+TechHandoff 连接飞书、GitHub 与主流大模型。模型接入由 LiteLLM 统一处理，可在国产、海外和本地模型之间切换。收到需求后，它会调查已绑定项目的真实代码，定位相关文件和符号，分析调用关系、测试范围与风险，并生成研发可以继续评审的技术方案。
 
 项目严格保持只读：不修改代码，不创建分支或 PR，不执行部署。
 
@@ -159,9 +159,8 @@ Python 默认使用 Pyright；Java 默认使用 JDTLS，首次使用可能需要
 编辑 `.env`：
 
 ```dotenv
-MODEL_BASE_URL=https://api.deepseek.com
-MODEL_API_KEY=your-model-api-key
-MODEL_NAME=deepseek-v4-pro
+MODEL_NAME=deepseek/deepseek-chat
+DEEPSEEK_API_KEY=your-model-api-key
 
 FEISHU_PROJECT_TRACKER_APP_ID=cli_xxx
 FEISHU_PROJECT_TRACKER_APP_SECRET=your-feishu-app-secret
@@ -272,12 +271,23 @@ GITHUB_WEBHOOK_SECRET=your-random-webhook-secret
 
 ## 模型与调查预算
 
-模型服务需要兼容 OpenAI Chat Completions：
+v0.6.1 起使用 LiteLLM 统一模型接口。MODEL_NAME 使用 provider/model 格式，供应商密钥由 LiteLLM 从对应环境变量读取：
 
 ```dotenv
-MODEL_BASE_URL=https://api.deepseek.com
-MODEL_API_KEY=your-model-api-key
-MODEL_NAME=deepseek-v4-pro
+# 阿里云百炼 / 通义千问
+MODEL_NAME=dashscope/qwen-plus
+DASHSCOPE_API_KEY=sk-xxx
+
+# 也可以切换为其他常见模型：
+# deepseek/deepseek-chat        + DEEPSEEK_API_KEY
+# moonshot/moonshot-v1-32k     + MOONSHOT_API_KEY
+# zai/glm-4-plus               + ZAI_API_KEY
+# minimax/MiniMax-M2.7         + MINIMAX_API_KEY
+# volcengine/模型或接入点ID     + ARK_API_KEY
+# openai/gpt-4.1-mini          + OPENAI_API_KEY
+# anthropic/claude-sonnet-4-5  + ANTHROPIC_API_KEY
+# gemini/gemini-2.5-pro        + GEMINI_API_KEY
+# ollama/qwen3                 （本地模型）
 
 # 空响应或非法 JSON 的重试次数，范围 0～4
 MODEL_JSON_RETRIES=2
@@ -285,6 +295,16 @@ MODEL_JSON_RETRIES=2
 # 单次方案的最大只读调查步数，范围 4～100
 AGENT_MAX_STEPS=40
 ```
+
+其他兼容 OpenAI Chat Completions 的平台可使用自定义接入：
+
+```dotenv
+MODEL_NAME=openai/your-model-name
+MODEL_BASE_URL=https://provider.example.com/v1
+MODEL_API_KEY=your-api-key
+```
+
+模型调用仍要求返回 JSON。LiteLLM 会尽量丢弃供应商不支持的可选参数；千问模型默认关闭思考模式以提高 JSON Object 输出稳定性。语音、图像等非文本 Chat Completions 模型不适用于当前技术方案 Agent。
 
 提高 `AGENT_MAX_STEPS` 有助于调查大型项目，但会增加延迟和 Token 消耗。已配置模型时，如果调查超出限制、网络失败或模型没有返回有效结构，本次任务会明确失败，不会用关键词结果冒充完整调查。
 

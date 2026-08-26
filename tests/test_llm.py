@@ -1,24 +1,9 @@
 from __future__ import annotations
 
-import json
 import unittest
 from unittest.mock import patch
 
 from tracker.llm import OpenAICompatibleModel
-
-
-class FakeResponse:
-    def __init__(self, body: dict) -> None:
-        self.body = json.dumps(body).encode("utf-8")
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, traceback):
-        return False
-
-    def read(self) -> bytes:
-        return self.body
 
 
 class ModelTests(unittest.TestCase):
@@ -34,49 +19,104 @@ class ModelTests(unittest.TestCase):
 
     def test_retries_empty_content_and_requests_json_mode(self) -> None:
         responses = [
-            FakeResponse(
-                {
-                    "choices": [
-                        {
-                            "finish_reason": "stop",
-                            "message": {"content": "", "reasoning_content": "thought"},
-                        }
-                    ]
-                }
-            ),
-            FakeResponse(
-                {
-                    "choices": [
-                        {
-                            "finish_reason": "stop",
-                            "message": {"content": '{"action":"project_understanding"}'},
-                        }
-                    ]
-                }
-            ),
+            {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": "", "reasoning_content": "thought"},
+                    }
+                ]
+            },
+            {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": '{"action":"project_understanding"}'},
+                    }
+                ]
+            },
         ]
-        requests = []
-
-        def fake_urlopen(request, timeout):
-            requests.append(request)
-            return responses.pop(0)
 
         model = OpenAICompatibleModel(
-            "https://api.example.com",
-            "secret",
-            "model",
+            "",
+            "",
+            "deepseek/deepseek-chat",
             json_retries=2,
         )
-        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        with patch.object(model, "_call_litellm", side_effect=responses) as call:
             result = model.complete_json(
                 [{"role": "system", "content": "Return JSON."}]
             )
 
         self.assertEqual(result, {"action": "project_understanding"})
-        self.assertEqual(len(requests), 2)
-        sent = json.loads(requests[0].data.decode("utf-8"))
+        self.assertEqual(call.call_count, 2)
+
+    def test_redacts_generic_api_key_from_errors(self) -> None:
+        model = OpenAICompatibleModel(
+            "https://example.com/v1",
+            "super-secret",
+            "openai/custom-model",
+            json_retries=0,
+        )
+        with patch.object(
+            model,
+            "_call_litellm",
+            side_effect=RuntimeError("request rejected for super-secret"),
+        ):
+            with self.assertRaisesRegex(Exception, r"\[redacted\]"):
+                model.complete_json(
+                    [{"role": "system", "content": "Return JSON."}]
+                )
+
+    def test_uses_the_selected_provider_key(self) -> None:
+        model = OpenAICompatibleModel(
+            "",
+            "",
+            "dashscope/qwen-plus",
+        )
+        with patch.dict(
+            "os.environ",
+            {
+                "DASHSCOPE_API_KEY": "qwen-key",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                model._api_key_for("dashscope/qwen-plus"),
+                "qwen-key",
+            )
+
+    def test_calls_litellm_with_qwen_compatible_options(self) -> None:
+        model = OpenAICompatibleModel(
+            "",
+            "",
+            "dashscope/qwen-plus",
+        )
+        response = {
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"content": '{"action":"final"}'},
+                }
+            ]
+        }
+        with patch.dict(
+            "os.environ",
+            {"DASHSCOPE_API_KEY": "qwen-key"},
+            clear=True,
+        ), patch("litellm.completion", return_value=response) as completion:
+            result = model._call_litellm(
+                "dashscope/qwen-plus",
+                [{"role": "system", "content": "Return JSON."}],
+                0.1,
+            )
+
+        self.assertEqual(result, response)
+        sent = completion.call_args.kwargs
+        self.assertEqual(sent["model"], "dashscope/qwen-plus")
+        self.assertEqual(sent["api_key"], "qwen-key")
+        self.assertFalse(sent["enable_thinking"])
         self.assertEqual(sent["response_format"], {"type": "json_object"})
-        self.assertFalse(sent["stream"])
 
 
 if __name__ == "__main__":
