@@ -98,7 +98,7 @@ class ReadOnlyPlanningAgent:
                     f"代码版本：{snapshot.version}\n"
                     f"文本文件数：{snapshot.file_count}\n\n"
                     f"会议纪要：\n{meeting_notes[:16000]}\n\n"
-                    f"与本项目隔离存储的长期记忆：\n{memory_text[:8000] or '无'}\n\n"
+                    f"人工明确记录的项目决定与约束：\n{memory_text[:8000] or '无'}\n\n"
                     "请先调查仓库，再返回 final。"
                 ),
             },

@@ -301,10 +301,10 @@ class TrackerService:
             # intentionally not presented as agent-verified analysis.
             evidence = self.reader.find_evidence(files, meeting_notes, self.settings.max_evidence)
             proposal = build_proposal(project, snapshot, requirement, evidence, source_label, memory)
-        output_path = self.settings.output_dir / f"{proposal.proposal_id}.md"
+        project_output_id = hashlib.sha256(project.project_id.encode("utf-8")).hexdigest()[:16]
+        output_path = self.settings.output_dir / f"{project_output_id}-latest.md"
         output_path.write_text(proposal.markdown, encoding="utf-8")
         proposal.output_path = str(output_path)
-        self.store.save_proposal(proposal)
         if publish_to_feishu:
             publisher = feishu_client or self.feishu
             if not publisher:
@@ -317,26 +317,7 @@ class TrackerService:
             proposal.feishu_document_id = document.document_id
             proposal.feishu_document_url = document.url
             proposal.status = "published"
-        self.store.save_proposal(proposal)
-        self._remember_proposal(proposal)
         return proposal
-
-    def _remember_proposal(self, proposal: Proposal) -> None:
-        entries: list[tuple[str, str]] = [("requirement", proposal.requirement.business_goal)]
-        entries.extend(("requested_change", item) for item in proposal.requirement.requested_changes)
-        entries.extend(("acceptance", item) for item in proposal.requirement.acceptance_criteria)
-        entries.extend(("open_question", item) for item in proposal.requirement.unknowns)
-        for item in proposal.evidence:
-            symbols = f"；符号 {', '.join(item.symbols)}" if item.symbols else ""
-            entries.append(("code_fact", f"相关代码：{item.path}:{item.line_start}{symbols}"))
-        for kind, content in entries:
-            self.store.add_memory(
-                proposal.project_id,
-                kind,
-                content,
-                f"proposal:{proposal.proposal_id}",
-                proposal.repository_version,
-            )
 
     def search_memory(self, project_id: str, query: str, limit: int = 8) -> tuple[dict, ...]:
         query_terms = extract_search_terms(query)
@@ -346,12 +327,11 @@ class TrackerService:
             "preference": 5,
             "requirement": 4,
             "open_question": 4,
-            "requested_change": 3,
-            "acceptance": 2,
-            "code_fact": 1,
         }
         best_by_content: dict[str, tuple[float, int, dict]] = {}
         for index, item in enumerate(self.store.list_memory(project_id)):
+            if str(item.get("source") or "").startswith("proposal:"):
+                continue
             content = str(item.get("content") or "").lower()
             score = sum(1.0 + min(len(term), 8) / 8.0 for term in query_terms if term.lower() in content)
             score += max(0.0, 0.5 - index * 0.01)
@@ -463,15 +443,7 @@ class TrackerService:
         if project.uses_github:
             return self.sync_github_project(project_selector)
         snapshot, _ = self.reader.scan(project)
-        stale_ids: list[str] = []
-        for proposal in self.store.list_proposals(project.project_id):
-            if proposal.get("repository_version") != snapshot.version and proposal.get("status") != "stale":
-                proposal_id = str(proposal.get("proposal_id") or "")
-                if proposal_id:
-                    self.store.update_proposal_status(proposal_id, "stale")
-                    stale_ids.append(proposal_id)
         return {
             "project_id": project.project_id,
             "repository_version": snapshot.version,
-            "stale_proposal_ids": stale_ids,
         }

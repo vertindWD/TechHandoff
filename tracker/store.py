@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .models import Job, Project, Proposal
+from .models import Job, Project
 
 
 def _now() -> str:
@@ -34,13 +34,6 @@ class Store:
                     name TEXT NOT NULL,
                     payload TEXT NOT NULL,
                     updated_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS proposals (
-                    proposal_id TEXT PRIMARY KEY,
-                    project_id TEXT NOT NULL,
-                    repository_version TEXT NOT NULL,
-                    payload TEXT NOT NULL,
-                    created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS jobs (
                     job_id TEXT PRIMARY KEY,
@@ -104,6 +97,11 @@ class Store:
                 );
                 CREATE INDEX IF NOT EXISTS idx_project_maps_project
                     ON project_maps(project_id, generated_at);
+
+                -- Clean data persisted by versions that stored generated
+                -- proposals and copied their content into project memory.
+                DROP TABLE IF EXISTS proposals;
+                DELETE FROM memory_entries WHERE source LIKE 'proposal:%';
                 """
             )
 
@@ -186,51 +184,6 @@ class Store:
                 (bot_id, chat_id),
             )
         return bool(cursor.rowcount)
-
-    def save_proposal(self, proposal: Proposal) -> None:
-        payload = json.dumps(proposal.to_dict(include_markdown=True), ensure_ascii=False)
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO proposals(proposal_id, project_id, repository_version, payload, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(proposal_id) DO UPDATE SET payload=excluded.payload
-                """,
-                (
-                    proposal.proposal_id,
-                    proposal.project_id,
-                    proposal.repository_version,
-                    payload,
-                    proposal.generated_at,
-                ),
-            )
-
-    def get_proposal(self, proposal_id: str) -> dict[str, Any] | None:
-        with self._connect() as connection:
-            row = connection.execute(
-                "SELECT payload FROM proposals WHERE proposal_id = ?", (proposal_id,)
-            ).fetchone()
-        return json.loads(row["payload"]) if row else None
-
-    def list_proposals(self, project_id: str) -> list[dict[str, Any]]:
-        with self._connect() as connection:
-            rows = connection.execute(
-                "SELECT payload FROM proposals WHERE project_id = ? ORDER BY created_at DESC",
-                (project_id,),
-            ).fetchall()
-        return [json.loads(row["payload"]) for row in rows]
-
-    def update_proposal_status(self, proposal_id: str, status: str) -> None:
-        proposal = self.get_proposal(proposal_id)
-        if not proposal:
-            return
-        proposal["status"] = status
-        payload = json.dumps(proposal, ensure_ascii=False)
-        with self._connect() as connection:
-            connection.execute(
-                "UPDATE proposals SET payload = ? WHERE proposal_id = ?",
-                (payload, proposal_id),
-            )
 
     def create_job(self, job: Job) -> None:
         now = _now()
@@ -433,14 +386,3 @@ class Store:
         with self._connect() as connection:
             rows = connection.execute(query, params).fetchall()
         return [dict(row) for row in rows]
-
-    def mark_versioned_memory_stale(self, project_id: str, current_version: str) -> int:
-        with self._connect() as connection:
-            cursor = connection.execute(
-                """
-                UPDATE memory_entries SET stale = 1
-                WHERE project_id = ? AND source_version != ? AND kind IN ('code_fact', 'implementation')
-                """,
-                (project_id, current_version),
-            )
-        return int(cursor.rowcount)

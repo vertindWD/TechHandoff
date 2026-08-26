@@ -120,13 +120,13 @@ class GitHubTests(unittest.TestCase):
                 {item["path"] for item in service.store.list_repository_files(project.project_id)},
             )
             self.assertEqual(fake.tarball_calls, 1, "对话读取缓存，不应再次下载 GitHub")
-            proposal = service.generate_proposal(
+            service.generate_proposal(
                 project.project_id,
                 "订单通知需要支持重新发送，并显示成功或失败提示。",
                 "GitHub memory test",
             )
             remembered = service.build_context(project.project_id, "重新发送订单通知")
-            self.assertTrue(remembered["memory"])
+            self.assertFalse(remembered["memory"])
             self.assertEqual(fake.tarball_calls, 1, "生成方案和后续对话都应复用缓存")
 
             fake.commit = GitHubCommit("commit-2", "tree-2")
@@ -143,13 +143,11 @@ class GitHubTests(unittest.TestCase):
                 service.store.get_repository_snapshot(project.project_id)["commit_sha"],
                 "commit-2",
             )
-            self.assertEqual(service.store.get_proposal(proposal.proposal_id)["status"], "stale")
-            stale_code_memory = [
-                item
-                for item in service.store.list_memory(project.project_id, include_stale=True)
-                if item["kind"] == "code_fact" and item["stale"] == 1
-            ]
-            self.assertTrue(stale_code_memory)
+            self.assertNotIn("stale_proposal_ids", second)
+            self.assertEqual(
+                service.store.list_memory(project.project_id, include_stale=True),
+                [],
+            )
 
 
 if __name__ == "__main__":

@@ -76,16 +76,25 @@ class ServiceTests(unittest.TestCase):
                 "测试会议纪要",
             )
             self.assertTrue(Path(proposal.output_path).is_file())
+            self.assertTrue(Path(proposal.output_path).name.endswith("-latest.md"))
             self.assertIn("frontend/OrderDetail.tsx", proposal.markdown)
             self.assertIn("代码版本", proposal.markdown)
             self.assertTrue(proposal.evidence)
             for item in proposal.evidence:
                 self.assertTrue((repo / item.path).is_file())
+            self.assertEqual(service.store.list_memory("orders", include_stale=True), [])
+            repeated = service.generate_proposal(
+                "订单",
+                "订单详情页增加重新发送通知按钮。点击后显示成功提示。",
+                "第二次测试会议纪要",
+            )
+            self.assertEqual(repeated.output_path, proposal.output_path)
+            self.assertEqual(len(list(settings_for(root).output_dir.glob("*.md"))), 1)
 
             target.write_text(target.read_text(encoding="utf-8") + "\n// changed\n", encoding="utf-8")
             refresh = service.refresh_project("订单")
-            self.assertEqual(refresh["stale_proposal_ids"], [proposal.proposal_id])
-            self.assertEqual(service.store.get_proposal(proposal.proposal_id)["status"], "stale")
+            self.assertNotEqual(refresh["repository_version"], proposal.repository_version)
+            self.assertNotIn("stale_proposal_ids", refresh)
 
             memory = service.remember(
                 "订单",

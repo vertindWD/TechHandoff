@@ -238,14 +238,6 @@ class GitHubRepositorySyncer:
             file_count,
             skipped,
         )
-        stale_proposals: list[str] = []
-        for proposal in self.store.list_proposals(project.project_id):
-            if proposal.get("repository_version") != commit.commit_sha and proposal.get("status") != "stale":
-                proposal_id = str(proposal.get("proposal_id") or "")
-                if proposal_id:
-                    self.store.update_proposal_status(proposal_id, "stale")
-                    stale_proposals.append(proposal_id)
-        stale_memory = self.store.mark_versioned_memory_stale(project.project_id, commit.commit_sha)
         return {
             "project_id": project.project_id,
             "github_repository": project.github_full_name,
@@ -255,8 +247,6 @@ class GitHubRepositorySyncer:
             "file_count": file_count,
             "skipped_file_count": skipped,
             "mode": mode,
-            "stale_proposal_ids": stale_proposals,
-            "stale_memory_count": stale_memory,
         }
 
     def cached_sources(self, project: Project) -> tuple[RepositorySnapshot, tuple[SourceFile, ...]]:

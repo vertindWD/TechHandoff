@@ -153,8 +153,8 @@ class OpenAICompatibleModel:
 已经由程序验证存在的代码证据：
 {evidence_text[:24000] or '没有定位到代码证据'}
 
-项目长期记忆（可能包含历史需求或待确认问题；标记为 stale 的内容不会传入）：
-{memory_text[:8000] or '没有相关长期记忆'}
+人工明确记录的项目决定与约束：
+{memory_text[:8000] or '没有相关项目约束'}
 
 只返回 JSON，不要 Markdown：
 {{

@@ -576,14 +576,6 @@ def make_handler(application: TrackerApplication):
                 job = application.service.store.get_job(match.group(1))
                 self._send(HTTPStatus.OK if job else HTTPStatus.NOT_FOUND, job or {"error": "job not found"})
                 return
-            match = re.fullmatch(r"/api/proposals/([A-Za-z0-9]+)", path)
-            if match:
-                proposal = application.service.store.get_proposal(match.group(1))
-                self._send(
-                    HTTPStatus.OK if proposal else HTTPStatus.NOT_FOUND,
-                    proposal or {"error": "proposal not found"},
-                )
-                return
             self._send(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
         def do_POST(self) -> None:  # noqa: N802

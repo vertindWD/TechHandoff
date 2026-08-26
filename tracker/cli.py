@@ -44,12 +44,12 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--commit-sha", default="")
     sync.add_argument("--force-full", action="store_true")
 
-    context = sub.add_parser("context", help="从缓存索引和长期记忆检索受限上下文")
+    context = sub.add_parser("context", help="从缓存索引和显式项目约束检索受限上下文")
     context.add_argument("--project", required=True)
     context.add_argument("--query", required=True)
     context.add_argument("--max-chars", type=int, default=24000)
 
-    remember = sub.add_parser("remember", help="保存经过确认的长期项目记忆")
+    remember = sub.add_parser("remember", help="显式保存经过确认的项目决定或约束")
     remember.add_argument("--project", required=True)
     remember.add_argument("--kind", required=True)
     remember.add_argument("--content", required=True)
