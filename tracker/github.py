@@ -13,7 +13,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from .models import Project, RepositorySnapshot
-from .repository import RepositoryReader, SourceFile, TEXT_EXTENSIONS, TEXT_FILENAMES
+from .repository import (
+    RepositoryReader,
+    SourceFile,
+    is_candidate_text_path,
+    is_probably_text,
+)
 from .store import Store
 
 
@@ -272,9 +277,7 @@ class GitHubRepositorySyncer:
     def _eligible(self, project: Project, path: str, size: int) -> bool:
         if size > self.reader.max_file_bytes:
             return False
-        name = path.rsplit("/", 1)[-1]
-        suffix = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
-        if suffix not in TEXT_EXTENSIONS and name not in TEXT_FILENAMES:
+        if not is_candidate_text_path(path):
             return False
         return self.reader.allowed_by_project(path, project)
 
@@ -301,10 +304,10 @@ class GitHubRepositorySyncer:
                         continue
                     handle = tar.extractfile(member)
                     raw = handle.read(self.reader.max_file_bytes + 1) if handle else b""
+                    seen.add(relative)
                     record = self._record(relative, tree_file.blob_sha, raw)
                     if record:
                         records.append(record)
-                        seen.add(relative)
                     if len(records) >= self.reader.max_files:
                         break
         except (tarfile.TarError, OSError) as exc:
@@ -315,7 +318,7 @@ class GitHubRepositorySyncer:
         return records
 
     def _record(self, path: str, blob_sha: str, raw: bytes) -> dict[str, Any] | None:
-        if len(raw) > self.reader.max_file_bytes or b"\x00" in raw:
+        if len(raw) > self.reader.max_file_bytes or not is_probably_text(raw):
             return None
         content = raw.decode("utf-8", errors="replace")
         return {

@@ -47,6 +47,29 @@ class RepositoryReaderTests(unittest.TestCase):
 
             self.assertEqual({item.path for item in files}, {"go.mod", "go.sum", "main.go"})
 
+    def test_reads_uncommon_text_source_and_skips_binary_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "contract.move").write_text(
+                "module example::counter { public fun increment() {} }\n",
+                encoding="utf-8",
+            )
+            (root / "generated.customlang").write_text(
+                "entity User { id: UUID }\n",
+                encoding="utf-8",
+            )
+            (root / "payload.unknown").write_bytes(b"\x00\x01\x02binary")
+
+            snapshot, files = RepositoryReader((root,)).scan(
+                Project("mixed", "Mixed languages", str(root))
+            )
+
+            self.assertEqual(
+                {item.path for item in files},
+                {"contract.move", "generated.customlang"},
+            )
+            self.assertEqual(snapshot.file_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -67,6 +67,61 @@ TEXT_FILENAMES = {
     "yarn.lock",
 }
 
+# Known binary artifacts are rejected before GitHub blob downloads. Files with
+# unknown extensions remain eligible and are classified from their content so
+# new or uncommon programming languages do not require a code change here.
+BINARY_EXTENSIONS = {
+    ".7z",
+    ".a",
+    ".apk",
+    ".avi",
+    ".bin",
+    ".bmp",
+    ".bz2",
+    ".class",
+    ".db",
+    ".dll",
+    ".dmg",
+    ".doc",
+    ".docx",
+    ".eot",
+    ".exe",
+    ".gif",
+    ".gz",
+    ".ico",
+    ".jar",
+    ".jpeg",
+    ".jpg",
+    ".mov",
+    ".mp3",
+    ".mp4",
+    ".o",
+    ".obj",
+    ".otf",
+    ".pdf",
+    ".png",
+    ".pyc",
+    ".pyo",
+    ".rar",
+    ".so",
+    ".sqlite",
+    ".sqlite3",
+    ".tar",
+    ".tif",
+    ".tiff",
+    ".ttf",
+    ".wav",
+    ".wasm",
+    ".webm",
+    ".webp",
+    ".woff",
+    ".woff2",
+    ".xls",
+    ".xlsx",
+    ".xz",
+    ".zip",
+}
+
 SKIP_DIRECTORIES = {
     ".git",
     ".idea",
@@ -157,6 +212,27 @@ class SourceFile:
     content: str
 
 
+def is_candidate_text_path(path: str) -> bool:
+    """Accept known and unknown source formats while rejecting obvious binaries."""
+    name = Path(path).name
+    suffix = Path(name).suffix.casefold()
+    if name in TEXT_FILENAMES or suffix in TEXT_EXTENSIONS:
+        return True
+    return suffix not in BINARY_EXTENSIONS
+
+
+def is_probably_text(raw: bytes) -> bool:
+    """Content-based fallback for extensionless and uncommon source languages."""
+    if not raw:
+        return True
+    sample = raw[:8192]
+    if b"\x00" in sample:
+        return False
+    allowed_controls = {8, 9, 10, 12, 13}
+    disallowed = sum(byte < 32 and byte not in allowed_controls or byte == 127 for byte in sample)
+    return disallowed / len(sample) <= 0.05
+
+
 def extract_search_terms(text: str) -> tuple[str, ...]:
     terms: set[str] = set()
     for chinese, translations in DOMAIN_TRANSLATIONS.items():
@@ -218,7 +294,7 @@ class RepositoryReader:
             if not self.allowed_by_project(relative, project):
                 skipped += 1
                 continue
-            if path.suffix.lower() not in TEXT_EXTENSIONS and path.name not in TEXT_FILENAMES:
+            if not is_candidate_text_path(relative):
                 skipped += 1
                 continue
             try:
@@ -229,7 +305,7 @@ class RepositoryReader:
             except OSError:
                 skipped += 1
                 continue
-            if b"\x00" in raw:
+            if not is_probably_text(raw):
                 skipped += 1
                 continue
             content = raw.decode("utf-8", errors="replace")

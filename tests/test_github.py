@@ -33,6 +33,7 @@ class FakeGitHubClient:
         self.commit = GitHubCommit("commit-1", "tree-1")
         self.tree = (
             GitHubTreeFile("src/order.py", "blob-1", 52),
+            GitHubTreeFile("contracts/order.move", "blob-move", 48),
             GitHubTreeFile("README", "blob-readme", 20),
             GitHubTreeFile(".env", "secret-blob", 20),
         )
@@ -40,6 +41,7 @@ class FakeGitHubClient:
             "blob-1": b'def resend_notification():\n    return "order notification"\n',
             "blob-2": b'def resend_notification():\n    return "order notification sent"\n',
             "blob-3": b"from src.order import resend_notification\n",
+            "blob-move": b"module orders::notification { public fun resend() {} }\n",
             "blob-readme": b"Order notification service\n",
         }
         self.tarball_calls = 0
@@ -60,6 +62,7 @@ class FakeGitHubClient:
         return make_tarball(
             {
                 "src/order.py": self.blobs["blob-1"],
+                "contracts/order.move": self.blobs["blob-move"],
                 "README": self.blobs["blob-readme"],
                 ".env": b"SECRET=never-index",
             }
@@ -107,11 +110,15 @@ class GitHubTests(unittest.TestCase):
 
             first = service.sync_github_project(project.project_id)
             self.assertEqual(first["mode"], "full")
-            self.assertEqual(first["file_count"], 2)
+            self.assertEqual(first["file_count"], 3)
             self.assertEqual(fake.tarball_calls, 1)
             cached = service.build_context(project.project_id, "订单通知")
             self.assertEqual(cached["repository_version"], "commit-1")
             self.assertTrue(cached["evidence"])
+            self.assertIn(
+                "contracts/order.move",
+                {item["path"] for item in service.store.list_repository_files(project.project_id)},
+            )
             self.assertEqual(fake.tarball_calls, 1, "对话读取缓存，不应再次下载 GitHub")
             proposal = service.generate_proposal(
                 project.project_id,
