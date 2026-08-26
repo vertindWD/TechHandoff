@@ -45,6 +45,20 @@ class FeishuClient:
             return value.strip()
         raise ValueError("没有找到有效的飞书新版文档 ID")
 
+    @staticmethod
+    def extract_minute_token(value: str) -> str:
+        match = re.search(
+            r"/minutes/(obcn[A-Za-z0-9_-]{8,})(?:[/?#]|$)",
+            value,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            return match.group(1)
+        stripped = value.strip()
+        if re.fullmatch(r"obcn[A-Za-z0-9_-]{8,}", stripped, flags=re.IGNORECASE):
+            return stripped
+        raise ValueError("没有找到有效的飞书妙记 minute_token")
+
     def _tenant_token(self) -> str:
         if self._token and time.time() < self._token_expires_at - 60:
             return self._token
@@ -68,7 +82,27 @@ class FeishuClient:
         payload: dict | None = None,
         authenticated: bool = True,
     ) -> dict:
-        headers = {"Content-Type": "application/json; charset=utf-8"}
+        raw = self._request_bytes(method, path, payload, authenticated)
+        try:
+            result = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise FeishuAPIError("飞书返回了无法解析的 JSON") from exc
+        if not isinstance(result, dict):
+            raise FeishuAPIError("飞书返回了无效的响应结构")
+        if int(result.get("code", 0)) != 0:
+            raise FeishuAPIError(f"飞书 API 错误 {result.get('code')}: {result.get('msg')}")
+        return result.get("data") or result
+
+    def _request_bytes(
+        self,
+        method: str,
+        path: str,
+        payload: dict | None = None,
+        authenticated: bool = True,
+    ) -> bytes:
+        headers = {}
+        if payload is not None:
+            headers["Content-Type"] = "application/json; charset=utf-8"
         if authenticated:
             headers["Authorization"] = f"Bearer {self._tenant_token()}"
         request = urllib.request.Request(
@@ -79,23 +113,60 @@ class FeishuClient:
         )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                result = json.loads(response.read().decode("utf-8"))
+                return response.read()
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:1000]
             raise FeishuAPIError(f"飞书 HTTP {exc.code}: {detail}") from exc
-        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        except (urllib.error.URLError, TimeoutError) as exc:
             raise FeishuAPIError(f"飞书请求失败：{exc}") from exc
-        if int(result.get("code", 0)) != 0:
-            raise FeishuAPIError(f"飞书 API 错误 {result.get('code')}: {result.get('msg')}")
-        return result.get("data") or result
 
     def read_document_text(self, document_id_or_url: str) -> str:
         document_id = self.extract_document_id(document_id_or_url)
         data = self._request("GET", f"/docx/v1/documents/{document_id}/raw_content")
         content = str(data.get("content") or "").strip()
         if not content:
-            raise FeishuAPIError("飞书文档没有可读取的纯文本内容")
+            raise FeishuAPIError(
+                "飞书文档没有可读取的文字内容；如果需求只在截图或白板中，请补充文字说明"
+            )
         return content
+
+    def read_minute_transcript(self, minute_token_or_url: str) -> str:
+        minute_token = self.extract_minute_token(minute_token_or_url)
+        query = urllib.parse.urlencode(
+            {
+                "need_speaker": "true",
+                "need_timestamp": "true",
+                "file_format": "txt",
+            }
+        )
+        raw = self._request_bytes(
+            "GET",
+            f"/minutes/v1/minutes/{minute_token}/transcript?{query}",
+        )
+        try:
+            transcript = raw.decode("utf-8-sig").strip()
+        except UnicodeDecodeError as exc:
+            raise FeishuAPIError("飞书妙记返回的逐字稿不是 UTF-8 文本") from exc
+        if not transcript:
+            raise FeishuAPIError("飞书妙记没有可读取的逐字稿")
+
+        # The export endpoint normally returns text/plain. Keep compatibility
+        # with gateways that wrap successful or failed responses in JSON.
+        try:
+            result = json.loads(transcript)
+        except json.JSONDecodeError:
+            return transcript
+        if not isinstance(result, dict):
+            return transcript
+        if int(result.get("code", 0)) != 0:
+            raise FeishuAPIError(f"飞书 API 错误 {result.get('code')}: {result.get('msg')}")
+        data = result.get("data") or result
+        if isinstance(data, dict):
+            for key in ("content", "transcript", "text"):
+                content = str(data.get(key) or "").strip()
+                if content:
+                    return content
+        raise FeishuAPIError("飞书妙记响应中没有可读取的逐字稿")
 
     def create_document(self, title: str, folder_token: str = "") -> FeishuDocument:
         payload = {"title": title[:200]}
@@ -176,4 +247,3 @@ def markdown_to_blocks(markdown: str) -> list[dict]:
     if code_lines:
         blocks.append(_text_block(2, "text", "\n".join(code_lines)[:1900]))
     return blocks
-

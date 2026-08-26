@@ -37,6 +37,27 @@ def settings_for(root: Path) -> Settings:
 
 
 class ServiceTests(unittest.TestCase):
+    def test_reads_feishu_minute_as_meeting_source(self) -> None:
+        class Feishu:
+            @staticmethod
+            def extract_minute_token(value: str) -> str:
+                self_value = value.split("/minutes/", 1)[-1].split("?", 1)[0]
+                return self_value
+
+            @staticmethod
+            def read_minute_transcript(token: str) -> str:
+                return f"王五 00:00:01\n讨论 {token} 的上传流程"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = TrackerService(settings_for(Path(temp_dir)))
+            notes, source = service.read_meeting_source(
+                "https://example.feishu.cn/minutes/obcnABC_def-12345678?from=meeting",
+                Feishu(),  # type: ignore[arg-type]
+            )
+
+        self.assertIn("上传流程", notes)
+        self.assertEqual(source, "飞书妙记 obcnABC_def-12345678")
+
     def test_registers_github_repository_from_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             service = TrackerService(settings_for(Path(temp_dir)))

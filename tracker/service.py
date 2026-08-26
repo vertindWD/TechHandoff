@@ -427,8 +427,19 @@ class TrackerService:
         feishu_client: FeishuClient | None = None,
     ) -> tuple[str, str]:
         stripped = value.strip()
-        looks_like_token = bool(re.fullmatch(r"(?:doxcn|doccn)[A-Za-z0-9_-]+", stripped))
-        if "/docx/" in value or looks_like_token:
+        looks_like_minute_token = bool(
+            re.fullmatch(r"obcn[A-Za-z0-9_-]{8,}", stripped, flags=re.IGNORECASE)
+        )
+        looks_like_document_token = bool(
+            re.fullmatch(r"(?:doxcn|doccn)[A-Za-z0-9_-]+", stripped)
+        )
+        if "/minutes/" in value.casefold() or looks_like_minute_token:
+            reader = feishu_client or self.feishu
+            if not reader:
+                raise RuntimeError("读取飞书妙记需要配置 FEISHU_APP_ID 和 FEISHU_APP_SECRET")
+            minute_token = reader.extract_minute_token(value)
+            return reader.read_minute_transcript(minute_token), f"飞书妙记 {minute_token}"
+        if "/docx/" in value.casefold() or looks_like_document_token:
             reader = feishu_client or self.feishu
             if not reader:
                 raise RuntimeError("读取飞书文档需要配置 FEISHU_APP_ID 和 FEISHU_APP_SECRET")
