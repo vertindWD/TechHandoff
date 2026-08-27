@@ -37,6 +37,14 @@ def settings_for(root: Path) -> Settings:
 
 
 class ServiceTests(unittest.TestCase):
+    def test_parses_github_link_preview_text(self) -> None:
+        self.assertEqual(
+            TrackerService.parse_github_repository(
+                "🔗 GitHub - vertindWD/TechHandoff"
+            ),
+            ("vertindWD", "TechHandoff"),
+        )
+
     def test_reads_feishu_minute_as_meeting_source(self) -> None:
         class Feishu:
             @staticmethod

@@ -125,6 +125,12 @@ class TrackerService:
             flags=re.IGNORECASE,
         )
         if not match:
+            match = re.search(
+                r"github\s*[-—:：]\s*([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)",
+                value,
+                flags=re.IGNORECASE,
+            )
+        if not match:
             match = re.fullmatch(
                 r"\s*([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?\s*",
                 value,

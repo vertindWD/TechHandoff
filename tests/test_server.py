@@ -91,13 +91,16 @@ class ServerBoundaryTests(unittest.TestCase):
             app.submit = fake_submit  # type: ignore[method-assign]
             try:
                 app.handle_bound_feishu_message(
-                    "project", "evt-bind-orders", "chat-orders", "user-1", "绑定项目 订单系统"
+                    "project", "evt-help", "chat-orders", "user-1", "/"
+                )
+                app.handle_bound_feishu_message(
+                    "project", "evt-bind-orders", "chat-orders", "user-1", "/bind 订单系统"
                 )
                 app.handle_bound_feishu_message(
                     "project", "evt-bind-crm", "chat-crm", "user-2", "绑定项目 CRM"
                 )
                 app.handle_bound_feishu_message(
-                    "project", "evt-orders", "chat-orders", "user-1", "方案 增加按钮"
+                    "project", "evt-orders", "chat-orders", "user-1", "/plan 增加按钮"
                 )
                 app.handle_bound_feishu_message(
                     "project", "evt-crm", "chat-crm", "user-2", "方案 增加客户字段"
@@ -129,6 +132,7 @@ class ServerBoundaryTests(unittest.TestCase):
                     ["CRM记忆"],
                 )
                 self.assertTrue(any("已收到" in text for _, text in sent))
+                self.assertTrue(any("/bind" in text and "/plan" in text for _, text in sent))
             finally:
                 app.executor.shutdown(wait=True, cancel_futures=True)
 

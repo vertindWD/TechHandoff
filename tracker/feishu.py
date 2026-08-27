@@ -192,15 +192,23 @@ class FeishuClient:
 
     def send_text(self, receive_id: str, text: str, receive_id_type: str = "chat_id") -> None:
         query = urllib.parse.urlencode({"receive_id_type": receive_id_type})
-        self._request(
-            "POST",
-            f"/im/v1/messages?{query}",
-            {
-                "receive_id": receive_id,
-                "msg_type": "text",
-                "content": json.dumps({"text": text[:6000]}, ensure_ascii=False),
-            },
-        )
+        payload = {
+            "receive_id": receive_id,
+            "msg_type": "text",
+            "content": json.dumps({"text": text[:6000]}, ensure_ascii=False),
+        }
+        for attempt in range(3):
+            try:
+                self._request("POST", f"/im/v1/messages?{query}", payload)
+                return
+            except FeishuAPIError as exc:
+                detail = str(exc)
+                transient = "飞书请求失败" in detail or bool(
+                    re.search(r"飞书 HTTP (?:429|5\d\d)", detail)
+                )
+                if not transient or attempt == 2:
+                    raise
+                time.sleep(0.25 * (2**attempt))
 
 
 def _text_block(block_type: int, field: str, content: str) -> dict:

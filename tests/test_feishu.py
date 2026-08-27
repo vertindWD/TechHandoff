@@ -47,6 +47,21 @@ class FeishuTests(unittest.TestCase):
             with self.assertRaisesRegex(FeishuAPIError, "99991672"):
                 client.read_minute_transcript("obcnABC_def-12345678")
 
+    def test_retries_transient_message_send_failure(self) -> None:
+        client = FeishuClient("https://open.feishu.cn/open-apis", "id", "secret")
+        with patch.object(
+            client,
+            "_request",
+            side_effect=[
+                FeishuAPIError("飞书请求失败：SSL unexpected EOF"),
+                {"message_id": "om_123"},
+            ],
+        ) as request, patch("tracker.feishu.time.sleep") as sleep:
+            client.send_text("oc_123", "已收到")
+
+        self.assertEqual(request.call_count, 2)
+        sleep.assert_called_once_with(0.25)
+
     def test_converts_markdown_to_supported_blocks(self) -> None:
         blocks = markdown_to_blocks("# 标题\n\n## 小节\n- 条目\n1. 步骤\n正文")
         self.assertEqual([item["block_type"] for item in blocks], [3, 4, 12, 13, 2])

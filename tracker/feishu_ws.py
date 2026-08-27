@@ -187,6 +187,7 @@ class FeishuLongConnectionManager:
                     str(event.get("sender_id") or ""),
                     str(event.get("text") or ""),
                 )
+                self.last_message_error = ""
             except PermissionError:
                 continue
             except Exception as exc:

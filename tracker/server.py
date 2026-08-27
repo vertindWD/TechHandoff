@@ -18,6 +18,16 @@ from .models import Job, Project
 from .service import TrackerService
 
 
+SLASH_COMMAND_HELP = """可用命令：
+/bind owner/repository  绑定 GitHub 项目
+/projects               查看已注册项目
+/current                查看当前项目
+/unbind                 解除当前绑定
+/plan 需求或妙记链接     生成技术方案
+
+也可以继续使用中文命令，或直接发送需求。"""
+
+
 class TrackerApplication:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -292,7 +302,13 @@ class TrackerApplication:
         if command is not None:
             return command
 
-        source = re.sub(r"^(?:/)?方案(?:\s+|$)", "", clean_text, count=1).strip()
+        source = re.sub(
+            r"^(?:(?:/)?方案|/plan)(?:\s+|$)",
+            "",
+            clean_text,
+            count=1,
+            flags=re.IGNORECASE,
+        ).strip()
         if not source:
             return {
                 "code": 0,
@@ -379,7 +395,12 @@ class TrackerApplication:
     ) -> dict[str, Any] | None:
         feishu = self.feishu_clients[bot.bot_id]
         normalized = text.strip()
-        if normalized in {"项目列表", "/项目列表"}:
+        command = normalized.casefold()
+        if command in {"/", "帮助", "/帮助", "help", "/help"}:
+            feishu.send_text(chat_id, SLASH_COMMAND_HELP)
+            return {"code": 0, "command": "help"}
+
+        if command in {"项目列表", "/项目列表", "projects", "/projects"}:
             projects = self.service.store.list_projects()
             if projects:
                 lines = [
@@ -392,7 +413,7 @@ class TrackerApplication:
             feishu.send_text(chat_id, message)
             return {"code": 0, "command": "list_projects"}
 
-        if normalized in {"当前项目", "/当前项目"}:
+        if command in {"当前项目", "/当前项目", "current", "/current"}:
             binding = self.service.store.get_chat_project_binding(bot.bot_id, chat_id)
             project = (
                 self.service.store.find_project(str(binding["project_id"]))
@@ -416,12 +437,16 @@ class TrackerApplication:
                 "project_id": project.project_id,
             }
 
-        if normalized in {"解绑项目", "/解绑项目"}:
+        if command in {"解绑项目", "/解绑项目", "unbind", "/unbind"}:
             removed = self.service.store.unbind_chat_project(bot.bot_id, chat_id)
             feishu.send_text(chat_id, "项目绑定已解除。" if removed else "当前会话没有项目绑定。")
             return {"code": 0, "command": "unbind_project", "removed": removed}
 
-        match = re.match(r"^(?:/)?绑定项目(?:\s+|$)(.*)$", normalized, flags=re.DOTALL)
+        match = re.match(
+            r"^(?:(?:/)?绑定项目|/bind)(?:\s+|$)(.*)$",
+            normalized,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
         if not match:
             return None
         argument = match.group(1).strip()
@@ -434,12 +459,19 @@ class TrackerApplication:
             return {"code": 0, "command": "bind_project", "bound": False}
 
         parts = argument.split()
-        repository = self.service.parse_github_repository(parts[0])
+        first_repository = self.service.parse_github_repository(parts[0])
+        repository = first_repository or self.service.parse_github_repository(argument)
         if repository:
-            ref = parts[1] if len(parts) > 1 else ""
-            feishu.send_text(chat_id, "正在检查 GitHub 仓库并读取默认分支……")
+            ref = parts[1] if first_repository and len(parts) > 1 else ""
             try:
-                project = self.service.register_github_repository(parts[0], ref)
+                feishu.send_text(chat_id, "正在检查 GitHub 仓库并读取默认分支……")
+            except Exception as exc:
+                print(f"[飞书] 绑定进度消息发送失败，继续执行绑定：{exc}", flush=True)
+            try:
+                project = self.service.register_github_repository(
+                    f"{repository[0]}/{repository[1]}",
+                    ref,
+                )
             except Exception as exc:
                 message = str(exc)[:1000]
                 feishu.send_text(
