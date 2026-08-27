@@ -122,6 +122,59 @@ class PlanningAgentTests(unittest.TestCase):
         with self.assertRaises(ReadOnlyToolError):
             tools.execute({"action": "read_file", "path": "../.env"})
 
+    def test_agent_keeps_more_than_five_verified_recommendations(self) -> None:
+        files = tuple(
+            SourceFile(
+                f"backend/module_{index}.py",
+                f"def change_target_{index}():\n    return {index}\n",
+            )
+            for index in range(6)
+        )
+        changes = [
+            {
+                "path": source.path,
+                "line_start": 1,
+                "line_end": 2,
+                "symbol": f"change_target_{index}",
+                "instruction": f"调整第 {index + 1} 个独立模块。",
+                "confidence": "verified",
+            }
+            for index, source in enumerate(files)
+        ]
+        model = ScriptedModel(
+            [
+                {
+                    "action": "read_file",
+                    "path": source.path,
+                    "start_line": 1,
+                    "end_line": 2,
+                }
+                for source in files
+            ]
+            + [
+                {
+                    "action": "final",
+                    "requirement": {},
+                    "changes": changes,
+                    "tests": [],
+                    "risks": [],
+                    "unknowns": [],
+                }
+            ]
+        )
+        tools = ReadOnlyRepositoryTools(files, "# repository map")
+
+        result = ReadOnlyPlanningAgent(model, max_steps=8).run(
+            self.project,
+            RepositorySnapshot("github:acme/orders", "def456", len(files), 0),
+            "调整六个独立模块",
+            self.requirement,
+            (),
+            tools,
+        )
+
+        self.assertEqual(len(result.recommendations), 6)
+
     def test_serena_tools_record_semantically_inspected_paths(self) -> None:
         class Semantic:
             def symbols_overview(self, path, depth=0):

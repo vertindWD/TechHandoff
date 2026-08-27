@@ -16,7 +16,7 @@ SYSTEM_PROMPT = """你是只读的项目技术经理 Agent。你的任务不是�
 2. 你只能调用下列只读工具，不能要求 shell、写文件、apply_patch、Git、PR、部署或联网。
 3. 在给出 final 前必须主动调查。先读版本化项目理解索引，再优先用 Serena 的符号概览、符号定义和引用关系导航；关键文件仍必须 read_file。索引不是最终实现证据。
 4. 不得编造路径、符号、调用关系或产品规则。无法确认的内容放入 unknowns 或 risks。
-5. 默认只推荐 2 到 5 个最关键位置；精确到文件和已有符号即可，不必写逐行代码。
+5. 推荐应覆盖完成需求所需的全部独立改动位置，不设固定数量上限；合并重复位置，精确到文件和已有符号即可，不必写逐行代码。
 6. 每次只返回一个合法 JSON 对象，不要 Markdown。
 
 可用动作：
@@ -195,7 +195,7 @@ class ReadOnlyPlanningAgent:
         risks = list(self._items(data.get("risks")))
         raw_changes = data.get("changes")
         if isinstance(raw_changes, list):
-            for raw in raw_changes[:5]:
+            for raw in raw_changes:
                 if not isinstance(raw, dict):
                     continue
                 path = self._text(raw.get("path")).replace("\\", "/").lstrip("./")
