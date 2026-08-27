@@ -336,13 +336,15 @@ class TrackerApplication:
                 f"已注册项目：{names}",
             )
             return {"code": 0, "ignored": True, "reason": "project_not_bound"}
+        acknowledgement_sent = False
         try:
             feishu.send_text(
                 chat_id,
                 f"已收到，正在分析「{project.name}」的代码并生成技术方案。",
             )
-        except Exception:
-            pass
+            acknowledgement_sent = True
+        except Exception as exc:
+            print(f"[飞书] 确认消息首次发送失败：{exc}", flush=True)
         notes, source_label = self.service.read_meeting_source(source, feishu)
         job = self.submit(
             project.project_id,
@@ -352,6 +354,14 @@ class TrackerApplication:
             chat_id=chat_id,
             feishu_bot_id=bot.bot_id,
         )
+        if not acknowledgement_sent:
+            try:
+                feishu.send_text(
+                    chat_id,
+                    f"已收到，任务 {job.job_id[:8]} 正在分析「{project.name}」。",
+                )
+            except Exception as exc:
+                print(f"[飞书] 确认消息重试失败：{exc}", flush=True)
         return {
             "code": 0,
             "job_id": job.job_id,

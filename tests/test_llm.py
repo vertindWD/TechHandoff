@@ -7,6 +7,26 @@ from tracker.llm import OpenAICompatibleModel
 
 
 class ModelTests(unittest.TestCase):
+    def test_prefixes_bare_model_for_custom_compatible_endpoint(self) -> None:
+        model = OpenAICompatibleModel(
+            "https://example.com/v1",
+            "custom-key",
+            "deepseek-v4-pro",
+        )
+
+        self.assertEqual(model.model_name, "openai/deepseek-v4-pro")
+        self.assertEqual(model._api_key_for(model.model_name), "custom-key")
+
+    def test_infers_common_provider_without_custom_endpoint(self) -> None:
+        self.assertEqual(
+            OpenAICompatibleModel("", "", "qwen-plus").model_name,
+            "dashscope/qwen-plus",
+        )
+        self.assertEqual(
+            OpenAICompatibleModel("", "", "deepseek-chat").model_name,
+            "deepseek/deepseek-chat",
+        )
+
     def test_parses_fenced_and_prefixed_json_objects(self) -> None:
         self.assertEqual(
             OpenAICompatibleModel._parse_json('```json\n{"action":"final"}\n```'),

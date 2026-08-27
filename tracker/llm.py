@@ -23,9 +23,32 @@ class OpenAICompatibleModel:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
-        self.model_name = model_name
+        self.model_name = self._normalize_model_name(model_name, self.base_url)
         self.timeout = timeout
         self.json_retries = max(0, min(json_retries, 4))
+
+    @staticmethod
+    def _normalize_model_name(model_name: str, base_url: str) -> str:
+        normalized = model_name.strip()
+        if not normalized or "/" in normalized:
+            return normalized
+        if base_url:
+            # A custom OpenAI-compatible endpoint still needs LiteLLM's
+            # provider prefix, even when the upstream model name is arbitrary.
+            return f"openai/{normalized}"
+        provider_by_prefix = {
+            "qwen": "dashscope",
+            "deepseek": "deepseek",
+            "moonshot": "moonshot",
+            "kimi": "moonshot",
+            "glm": "zai",
+            "minimax": "minimax",
+        }
+        folded = normalized.casefold()
+        for prefix, provider in provider_by_prefix.items():
+            if folded.startswith(prefix):
+                return f"{provider}/{normalized}"
+        return normalized
 
     def complete_json(
         self,
@@ -69,10 +92,13 @@ class OpenAICompatibleModel:
         messages: list[dict[str, str]],
         temperature: float,
     ) -> dict[str, Any]:
+        os.environ.setdefault("LITELLM_LOG", "ERROR")
         try:
+            import litellm
             from litellm import completion
         except ImportError as exc:
             raise ModelError("缺少 litellm 依赖，请重新执行 pip install -e .") from exc
+        litellm.suppress_debug_info = True
 
         kwargs: dict[str, Any] = {
             "model": model_name,

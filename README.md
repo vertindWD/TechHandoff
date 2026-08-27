@@ -310,16 +310,18 @@ DASHSCOPE_API_KEY=sk-xxx
 MODEL_JSON_RETRIES=2
 
 # 单次方案的最大只读调查步数，范围 4～100
-AGENT_MAX_STEPS=40
+AGENT_MAX_STEPS=12
 ```
 
 其他兼容 OpenAI Chat Completions 的平台可使用自定义接入：
 
 ```dotenv
-MODEL_NAME=openai/your-model-name
+MODEL_NAME=your-model-name
 MODEL_BASE_URL=https://provider.example.com/v1
 MODEL_API_KEY=your-api-key
 ```
+
+配置自定义 `MODEL_BASE_URL` 时，裸模型名会自动按 LiteLLM 的 `openai/` 兼容提供商处理；写成 `openai/your-model-name` 也同样支持。未配置自定义地址时，`qwen-*`、`deepseek-*`、`moonshot-*`、`kimi-*`、`glm-*` 和 `minimax-*` 等常见裸模型名也会自动补全提供商。
 
 模型调用仍要求返回 JSON。LiteLLM 会尽量丢弃供应商不支持的可选参数；千问模型默认关闭思考模式以提高 JSON Object 输出稳定性。妙记先由飞书导出为文本；当前不会把录音或文档图片直接发送给模型。
 

@@ -107,6 +107,17 @@ class ReadOnlyPlanningAgent:
         self._progress(f"开始调查 project={project.project_id} version={snapshot.version}")
         for step_number in range(1, self.max_steps + 1):
             messages = self._compact(messages, trace, tools)
+            if step_number == self.max_steps and tools.inspected_paths:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "FINAL_STEP：调查预算已经用完。禁止再调用工具；"
+                            "请立即根据已经读取的真实代码返回 action=final。"
+                            "证据不足的内容放入 risks 或 unknowns，不要继续搜索。"
+                        ),
+                    }
+                )
             self._progress(f"步骤 {step_number}/{self.max_steps}：请求模型决定下一步")
             action = self.model.complete_json(messages)
             action_name = str(action.get("action") or "").strip()
