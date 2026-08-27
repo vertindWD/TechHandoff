@@ -67,6 +67,8 @@ class Settings:
     gopls_path: Path | None = None
     go_binary_path: Path | None = None
     model_json_retries: int = 2
+    model_thinking: str = "auto"
+    model_max_output_tokens: int = 4096
 
     @classmethod
     def from_env(cls, env_file: str | Path = ".env") -> "Settings":
@@ -99,7 +101,7 @@ class Settings:
             feishu_allowed_chat_ids=_csv(os.getenv("FEISHU_ALLOWED_CHAT_IDS", "")),
             feishu_allowed_user_ids=_csv(os.getenv("FEISHU_ALLOWED_USER_IDS", "")),
             public_base_url=os.getenv("PUBLIC_BASE_URL", "").rstrip("/"),
-            agent_max_steps=max(4, min(int(os.getenv("AGENT_MAX_STEPS", "12")), 100)),
+            agent_max_steps=max(4, min(int(os.getenv("AGENT_MAX_STEPS", "40")), 100)),
             feishu_bots_file=Path(bots_value).resolve() if bots_value else None,
             semantic_enabled=_boolean(os.getenv("SEMANTIC_ENABLED", "true")),
             semantic_data_dir=Path(os.getenv("SEMANTIC_DATA_DIR", "data/semantic")).resolve(),
@@ -122,6 +124,11 @@ class Settings:
                 else None
             ),
             model_json_retries=max(0, min(int(os.getenv("MODEL_JSON_RETRIES", "2")), 4)),
+            model_thinking=os.getenv("MODEL_THINKING", "auto").strip().casefold() or "auto",
+            model_max_output_tokens=max(
+                512,
+                min(int(os.getenv("MODEL_MAX_OUTPUT_TOKENS", "4096")), 32768),
+            ),
         )
 
     def ensure_directories(self) -> None:

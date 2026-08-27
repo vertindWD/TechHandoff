@@ -4,6 +4,7 @@ import json
 import os
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 from .models import Evidence, Requirement
 
@@ -20,12 +21,18 @@ class OpenAICompatibleModel:
         model_name: str,
         timeout: int = 90,
         json_retries: int = 2,
+        thinking_mode: str = "auto",
+        max_output_tokens: int = 4096,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model_name = self._normalize_model_name(model_name, self.base_url)
         self.timeout = timeout
         self.json_retries = max(0, min(json_retries, 4))
+        self.thinking_mode = thinking_mode.strip().casefold() or "auto"
+        if self.thinking_mode not in {"auto", "off", "on"}:
+            raise ValueError("MODEL_THINKING 只能是 auto、off 或 on")
+        self.max_output_tokens = max(512, min(max_output_tokens, 32768))
 
     @staticmethod
     def _normalize_model_name(model_name: str, base_url: str) -> str:
@@ -105,10 +112,10 @@ class OpenAICompatibleModel:
             "messages": messages,
             "temperature": temperature,
             "stream": False,
-            "response_format": {"type": "json_object"},
             "timeout": self.timeout,
             "num_retries": 0,
             "drop_params": True,
+            "max_completion_tokens": self.max_output_tokens,
         }
         if self.base_url:
             kwargs["api_base"] = self.base_url
@@ -116,12 +123,26 @@ class OpenAICompatibleModel:
         if api_key:
             kwargs["api_key"] = api_key
 
-        normalized = model_name.casefold()
-        if normalized.startswith(("dashscope/qwen", "qwen/")):
-            # Qwen JSON Object output is more stable with thinking disabled.
-            kwargs["enable_thinking"] = False
+        if self._is_qwen_model(model_name):
+            thinking_only = self._is_qwen_thinking_only(model_name)
+            if thinking_only and self.thinking_mode == "off":
+                raise ModelError(
+                    f"模型 {model_name} 是仅思考模型，不能设置 MODEL_THINKING=off；"
+                    "请使用 auto/on，或改用对应的 instruct/plus/coder 模型"
+                )
+            thinking_enabled = thinking_only or self.thinking_mode == "on"
+            if model_name.partition("/")[0].casefold() == "openai":
+                # Alibaba's OpenAI-compatible endpoint accepts non-standard
+                # Qwen controls through extra_body.
+                kwargs["extra_body"] = {"enable_thinking": thinking_enabled}
+            else:
+                kwargs["enable_thinking"] = thinking_enabled
+            if not thinking_enabled:
+                # Qwen JSON Object mode conflicts with thinking on several
+                # model families, so structured output is used only when off.
+                kwargs["response_format"] = {"type": "json_object"}
         else:
-            kwargs["max_tokens"] = 4096
+            kwargs["response_format"] = {"type": "json_object"}
 
         response = completion(**kwargs)
         if isinstance(response, dict):
@@ -133,12 +154,37 @@ class OpenAICompatibleModel:
                 return value
         raise ValueError("LiteLLM 返回了无法识别的响应对象")
 
+    @staticmethod
+    def _upstream_model_id(model_name: str) -> str:
+        return model_name.partition("/")[2] or model_name
+
+    @classmethod
+    def _is_qwen_model(cls, model_name: str) -> bool:
+        provider = model_name.partition("/")[0].casefold()
+        model_id = cls._upstream_model_id(model_name).casefold()
+        return provider in {"dashscope", "qwen"} or model_id.startswith(
+            ("qwen", "qwq", "qvq")
+        )
+
+    @classmethod
+    def _is_qwen_thinking_only(cls, model_name: str) -> bool:
+        model_id = cls._upstream_model_id(model_name).casefold()
+        return "-thinking" in model_id or model_id.startswith(("qwq", "qvq"))
+
+    def _uses_dashscope_endpoint(self) -> bool:
+        host = (urlparse(self.base_url).hostname or "").casefold()
+        return host in {
+            "dashscope.aliyuncs.com",
+            "dashscope-intl.aliyuncs.com",
+            "coding.dashscope.aliyuncs.com",
+        } or host.endswith(".maas.aliyuncs.com")
+
     def _api_key_for(self, model_name: str) -> str:
         if model_name == self.model_name and self.api_key:
             return self.api_key
         provider = model_name.partition("/")[0].casefold()
         variables = {
-            "dashscope": ("DASHSCOPE_API_KEY",),
+            "dashscope": ("DASHSCOPE_API_KEY", "BAILIAN_API_KEY"),
             "deepseek": ("DEEPSEEK_API_KEY",),
             "moonshot": ("MOONSHOT_API_KEY",),
             "zai": ("ZAI_API_KEY", "ZHIPUAI_API_KEY"),
@@ -151,6 +197,8 @@ class OpenAICompatibleModel:
             "gemini": ("GEMINI_API_KEY",),
             "openrouter": ("OPENROUTER_API_KEY",),
         }.get(provider, ())
+        if provider == "openai" and self._uses_dashscope_endpoint():
+            variables = ("DASHSCOPE_API_KEY", "BAILIAN_API_KEY", *variables)
         return next(
             (value for name in variables if (value := os.getenv(name, "").strip())),
             "",

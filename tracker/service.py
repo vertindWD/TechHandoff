@@ -56,6 +56,8 @@ class TrackerService:
                 settings.model_api_key,
                 settings.model_name,
                 json_retries=settings.model_json_retries,
+                thinking_mode=settings.model_thinking,
+                max_output_tokens=settings.model_max_output_tokens,
             )
             if settings.model_enabled
             else None

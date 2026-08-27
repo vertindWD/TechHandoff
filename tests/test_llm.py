@@ -137,6 +137,82 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(sent["api_key"], "qwen-key")
         self.assertFalse(sent["enable_thinking"])
         self.assertEqual(sent["response_format"], {"type": "json_object"})
+        self.assertEqual(sent["max_completion_tokens"], 4096)
+
+    def test_uses_dashscope_key_for_workspace_compatible_endpoint(self) -> None:
+        model = OpenAICompatibleModel(
+            "https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            "",
+            "qwen3.7-plus",
+        )
+        response = {
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"content": '{"action":"final"}'},
+                }
+            ]
+        }
+        with patch.dict(
+            "os.environ",
+            {"DASHSCOPE_API_KEY": "workspace-key"},
+            clear=True,
+        ), patch("litellm.completion", return_value=response) as completion:
+            model._call_litellm(
+                model.model_name,
+                [{"role": "system", "content": "Return JSON."}],
+                0.1,
+            )
+
+        self.assertEqual(model.model_name, "openai/qwen3.7-plus")
+        sent = completion.call_args.kwargs
+        self.assertEqual(sent["api_key"], "workspace-key")
+        self.assertEqual(sent["extra_body"], {"enable_thinking": False})
+        self.assertNotIn("enable_thinking", sent)
+        self.assertEqual(sent["response_format"], {"type": "json_object"})
+
+    def test_thinking_only_qwen_uses_text_mode(self) -> None:
+        model = OpenAICompatibleModel(
+            "",
+            "",
+            "qwen3-30b-a3b-thinking-2507",
+        )
+        response = {
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"content": '{"action":"final"}'},
+                }
+            ]
+        }
+        with patch.dict(
+            "os.environ",
+            {"DASHSCOPE_API_KEY": "thinking-key"},
+            clear=True,
+        ), patch("litellm.completion", return_value=response) as completion:
+            model._call_litellm(
+                model.model_name,
+                [{"role": "system", "content": "Return JSON."}],
+                0.1,
+            )
+
+        sent = completion.call_args.kwargs
+        self.assertTrue(sent["enable_thinking"])
+        self.assertNotIn("response_format", sent)
+
+    def test_rejects_disabling_thinking_only_qwen(self) -> None:
+        model = OpenAICompatibleModel(
+            "",
+            "",
+            "qwq-plus",
+            thinking_mode="off",
+        )
+        with self.assertRaisesRegex(Exception, "仅思考模型"):
+            model._call_litellm(
+                model.model_name,
+                [{"role": "system", "content": "Return JSON."}],
+                0.1,
+            )
 
 
 if __name__ == "__main__":

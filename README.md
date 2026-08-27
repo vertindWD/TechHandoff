@@ -291,9 +291,13 @@ GITHUB_WEBHOOK_SECRET=your-random-webhook-secret
 v0.6.1 起使用 LiteLLM 统一模型接口。MODEL_NAME 使用 provider/model 格式，供应商密钥由 LiteLLM 从对应环境变量读取：
 
 ```dotenv
-# 阿里云百炼 / 通义千问
-MODEL_NAME=dashscope/qwen-plus
+# 阿里云百炼 / 通义千问；也可以直接写 MODEL_NAME=qwen3.7-plus
+MODEL_NAME=dashscope/qwen3.7-plus
 DASHSCOPE_API_KEY=sk-xxx
+
+# auto 会让普通千问使用非思考 JSON 模式，仅思考模型自动开启思考
+MODEL_THINKING=auto
+MODEL_MAX_OUTPUT_TOKENS=4096
 
 # 也可以切换为其他常见模型：
 # deepseek/deepseek-chat        + DEEPSEEK_API_KEY
@@ -310,8 +314,20 @@ DASHSCOPE_API_KEY=sk-xxx
 MODEL_JSON_RETRIES=2
 
 # 单次方案的最大只读调查步数，范围 4～100
-AGENT_MAX_STEPS=12
+AGENT_MAX_STEPS=40
 ```
+
+千问建议按场景选择：
+
+| 场景 | 建议模型 | 特点 |
+| --- | --- | --- |
+| 日常快速交接 | `qwen3.7-flash` | 延迟和成本优先 |
+| 默认均衡选择 | `qwen3.7-plus` | 适合需求理解和代码调查 |
+| 复杂跨模块方案 | `qwen3.8-max` | 质量优先 |
+| 代码仓库理解 | `qwen3-coder-plus` | 更偏代码分析，长上下文 |
+| 兼容稳定版本 | `qwen-plus` | 适合已有百炼账号直接迁移 |
+
+模型名可以写成 `dashscope/qwen3.7-plus`，也可以直接写 `qwen3.7-plus`，程序会自动补全提供商。模型是否在当前地域和账号可用，以百炼控制台为准。
 
 其他兼容 OpenAI Chat Completions 的平台可使用自定义接入：
 
@@ -323,7 +339,15 @@ MODEL_API_KEY=your-api-key
 
 配置自定义 `MODEL_BASE_URL` 时，裸模型名会自动按 LiteLLM 的 `openai/` 兼容提供商处理；写成 `openai/your-model-name` 也同样支持。未配置自定义地址时，`qwen-*`、`deepseek-*`、`moonshot-*`、`kimi-*`、`glm-*` 和 `minimax-*` 等常见裸模型名也会自动补全提供商。
 
-模型调用仍要求返回 JSON。LiteLLM 会尽量丢弃供应商不支持的可选参数；千问模型默认关闭思考模式以提高 JSON Object 输出稳定性。妙记先由飞书导出为文本；当前不会把录音或文档图片直接发送给模型。
+使用百炼工作空间专属 OpenAI 兼容地址时，可以继续只配置 `DASHSCOPE_API_KEY` 或 `BAILIAN_API_KEY`，无需重复填写 `MODEL_API_KEY`：
+
+```dotenv
+MODEL_NAME=qwen3.7-plus
+MODEL_BASE_URL=https://你的WorkspaceId.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+DASHSCOPE_API_KEY=sk-xxx
+```
+
+模型调用仍要求返回 JSON。LiteLLM 会尽量丢弃供应商不支持的可选参数。`MODEL_THINKING=auto` 时，普通千问文本和代码模型关闭思考并使用 JSON Object；名称包含 `-thinking` 的模型以及 QwQ/QVQ 会自动开启思考并改用文本 JSON 解析，避免思考模式与结构化输出冲突。也可显式设置 `MODEL_THINKING=on` 或 `off`。妙记先由飞书导出为文本；当前不会把录音或文档图片直接发送给模型。
 
 提高 `AGENT_MAX_STEPS` 有助于调查大型项目，但会增加延迟和 Token 消耗。已配置模型时，如果调查超出限制、网络失败或模型没有返回有效结构，本次任务会明确失败，不会用关键词结果冒充完整调查。
 
