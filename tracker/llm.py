@@ -295,4 +295,4 @@ class OpenAICompatibleModel:
     def _items(cls, value: object) -> tuple[str, ...]:
         if not isinstance(value, list):
             return ()
-        return tuple(cls._text(item) for item in value if cls._text(item))[:12]
+        return tuple(cls._text(item) for item in value if cls._text(item))

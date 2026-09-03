@@ -48,8 +48,7 @@ def extract_requirement(meeting_notes: str) -> Requirement:
 
     return Requirement(
         business_goal=sentences[0],
-        requested_changes=tuple(requested[:8]),
-        acceptance_criteria=tuple(acceptance[:8]),
+        requested_changes=tuple(requested),
+        acceptance_criteria=tuple(acceptance),
         unknowns=tuple(unknowns),
     )
-

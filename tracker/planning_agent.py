@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from .code_tools import ReadOnlyRepositoryTools, ReadOnlyToolError
@@ -29,7 +29,16 @@ SYSTEM_PROMPT = """你是只读的项目技术经理 Agent。你的任务不是�
 {"action":"search_pattern","pattern":"只有符号工具无法定位时使用的文本或正则","path":"可选文件或目录"}
 {"action":"search_code","pattern":"语义分析不可用时才使用的纯文本","path_prefix":"可选目录","max_results":30}
 
-完成调查后返回：
+调查过程中可以分批记录结果，避免大型方案必须塞进一次回答：
+{"action":"record_requirements","requirement":{"business_goal":"一句话目标","requested_changes":["会议明确要求"],"acceptance_criteria":["可验收结果"],"unknowns":["不能猜的问题"]}}
+{"action":"record_changes","changes":[{"path":"已调查的真实路径","line_start":1,"line_end":1,"symbol":"已有符号","instruction":"改什么","confidence":"verified"}]}
+{"action":"record_tests","tests":["建议测试"]}
+{"action":"record_risks","risks":["风险"],"unknowns":["待确认问题"]}
+{"action":"finalize"}
+
+每批 change 会立即由程序校验和去重。单批建议控制在 20 条以内；需要更多时继续调用 record_changes。确认所有明确需求已有改动依据，或已进入 unknowns 后，才能 finalize。
+
+为兼容旧模型，也可以完成调查后一次返回：
 {
   "action":"final",
   "requirement":{
@@ -63,6 +72,16 @@ class PlanningOutcome:
     suggested_tests: tuple[str, ...]
     risks: tuple[str, ...]
     analysis_steps: tuple[str, ...]
+
+
+@dataclass
+class _PlanningDraft:
+    requirement: Requirement | None = None
+    recommendations: list[ChangeRecommendation] = field(default_factory=list)
+    evidence: list[Evidence] = field(default_factory=list)
+    suggested_tests: list[str] = field(default_factory=list)
+    risks: list[str] = field(default_factory=list)
+    unknowns: list[str] = field(default_factory=list)
 
 
 class ReadOnlyPlanningAgent:
@@ -104,6 +123,7 @@ class ReadOnlyPlanningAgent:
             },
         ]
         trace: list[str] = []
+        draft = _PlanningDraft()
         self._progress(f"开始调查 project={project.project_id} version={snapshot.version}")
         for step_number in range(1, self.max_steps + 1):
             messages = self._compact(messages, trace, tools)
@@ -116,7 +136,28 @@ class ReadOnlyPlanningAgent:
                     "content": json.dumps(action, ensure_ascii=False),
                 }
             )
-            if action_name == "final":
+            if action_name in {
+                "record_requirements",
+                "record_changes",
+                "record_tests",
+                "record_risks",
+            }:
+                tool_output = self._record(
+                    action_name,
+                    action,
+                    fallback_requirement,
+                    tools,
+                    draft,
+                )
+                self._progress(tool_output)
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": f"TOOL_RESULT action={action_name}\n{tool_output}",
+                    }
+                )
+                continue
+            if action_name in {"final", "finalize"}:
                 if not tools.inspected_paths:
                     self._progress("拒绝过早结论：模型尚未读取真实源码")
                     messages.append(
@@ -126,7 +167,14 @@ class ReadOnlyPlanningAgent:
                         }
                     )
                     continue
-                return self._finalize(action, fallback_requirement, tools, trace)
+                if action_name == "final":
+                    self._record_legacy_final(
+                        action,
+                        fallback_requirement,
+                        tools,
+                        draft,
+                    )
+                return self._finalize(fallback_requirement, draft, trace)
             try:
                 result = tools.execute(action)
                 trace.append(result.summary)
@@ -171,17 +219,53 @@ class ReadOnlyPlanningAgent:
         }
         return [*messages[:2], compacted, *messages[-4:]]
 
-    def _finalize(
+    def _record(
+        self,
+        action_name: str,
+        data: dict,
+        fallback: Requirement,
+        tools: ReadOnlyRepositoryTools,
+        draft: _PlanningDraft,
+    ) -> str:
+        if action_name == "record_requirements":
+            draft.requirement = self._requirement(data.get("requirement"), fallback)
+            return "已记录结构化需求"
+        if action_name == "record_changes":
+            before = len(draft.recommendations)
+            self._record_changes(data.get("changes"), tools, draft)
+            return (
+                f"已校验并累计 {len(draft.recommendations)} 条改动建议"
+                f"（本批新增 {len(draft.recommendations) - before} 条）"
+            )
+        if action_name == "record_tests":
+            self._extend_unique(draft.suggested_tests, self._items(data.get("tests")))
+            return f"已累计 {len(draft.suggested_tests)} 条测试建议"
+        self._extend_unique(draft.risks, self._items(data.get("risks")))
+        self._extend_unique(draft.unknowns, self._items(data.get("unknowns")))
+        return f"已累计 {len(draft.risks)} 条风险、{len(draft.unknowns)} 条待确认问题"
+
+    def _record_legacy_final(
         self,
         data: dict,
         fallback: Requirement,
         tools: ReadOnlyRepositoryTools,
-        trace: list[str],
-    ) -> PlanningOutcome:
+        draft: _PlanningDraft,
+    ) -> None:
         requirement_data = data.get("requirement")
+        if isinstance(requirement_data, dict) and requirement_data:
+            draft.requirement = self._requirement(requirement_data, fallback)
+        elif draft.requirement is None:
+            draft.requirement = fallback
+        self._record_changes(data.get("changes"), tools, draft)
+        self._extend_unique(draft.suggested_tests, self._items(data.get("tests")))
+        self._extend_unique(draft.risks, self._items(data.get("risks")))
+        self._extend_unique(draft.unknowns, self._items(data.get("unknowns")))
+
+    def _requirement(self, value: object, fallback: Requirement) -> Requirement:
+        requirement_data = value
         if not isinstance(requirement_data, dict):
             requirement_data = {}
-        requirement = Requirement(
+        return Requirement(
             business_goal=self._text(requirement_data.get("business_goal"))
             or fallback.business_goal,
             requested_changes=self._items(requirement_data.get("requested_changes"))
@@ -190,10 +274,17 @@ class ReadOnlyPlanningAgent:
             or fallback.acceptance_criteria,
             unknowns=self._items(requirement_data.get("unknowns")) or fallback.unknowns,
         )
-        checked: list[ChangeRecommendation] = []
-        evidence: list[Evidence] = []
-        risks = list(self._items(data.get("risks")))
-        raw_changes = data.get("changes")
+
+    def _record_changes(
+        self,
+        raw_changes: object,
+        tools: ReadOnlyRepositoryTools,
+        draft: _PlanningDraft,
+    ) -> None:
+        existing = {
+            (item.path, item.line_start, item.line_end, item.symbol, item.instruction)
+            for item in draft.recommendations
+        }
         if isinstance(raw_changes, list):
             for raw in raw_changes:
                 if not isinstance(raw, dict):
@@ -210,28 +301,48 @@ class ReadOnlyPlanningAgent:
                     instruction=instruction,
                     confidence="inferred",
                 )
-                verified, proof, warning = tools.verify_recommendation(item)
-                if verified and proof:
-                    checked.append(verified)
-                    evidence.append(proof)
+                checked, proof, warning = tools.verify_recommendation(item)
+                if checked and proof:
+                    key = (
+                        checked.path,
+                        checked.line_start,
+                        checked.line_end,
+                        checked.symbol,
+                        checked.instruction,
+                    )
+                    if key not in existing:
+                        draft.recommendations.append(checked)
+                        draft.evidence.append(proof)
+                        existing.add(key)
                 if warning:
-                    risks.append(warning)
-        unknowns = self._items(data.get("unknowns"))
+                    self._extend_unique(draft.risks, (warning,))
+
+    def _finalize(
+        self,
+        fallback: Requirement,
+        draft: _PlanningDraft,
+        trace: list[str],
+    ) -> PlanningOutcome:
+        requirement = draft.requirement or fallback
+        unknowns = tuple(draft.unknowns)
         if unknowns:
             requirement = Requirement(
                 business_goal=requirement.business_goal,
                 requested_changes=requirement.requested_changes,
                 acceptance_criteria=requirement.acceptance_criteria,
-                unknowns=tuple(dict.fromkeys((*requirement.unknowns, *unknowns)))[:12],
+                unknowns=tuple(dict.fromkeys((*requirement.unknowns, *unknowns))),
             )
+        checked = draft.recommendations
+        evidence = draft.evidence
+        risks = draft.risks
         if not checked:
             risks.append("本次调查未得到可验证的改动位置，不能据此直接安排开发。")
         outcome = PlanningOutcome(
             requirement=requirement,
             recommendations=tuple(checked),
             evidence=tuple(evidence),
-            suggested_tests=self._items(data.get("tests")),
-            risks=tuple(dict.fromkeys(item for item in risks if item))[:12],
+            suggested_tests=tuple(draft.suggested_tests),
+            risks=tuple(dict.fromkeys(item for item in risks if item)),
             analysis_steps=tuple(trace),
         )
         self._progress(
@@ -247,7 +358,15 @@ class ReadOnlyPlanningAgent:
     def _items(cls, value: object) -> tuple[str, ...]:
         if not isinstance(value, list):
             return ()
-        return tuple(cls._text(item)[:800] for item in value if cls._text(item))[:12]
+        return tuple(cls._text(item)[:800] for item in value if cls._text(item))
+
+    @staticmethod
+    def _extend_unique(target: list[str], items: tuple[str, ...]) -> None:
+        seen = set(target)
+        for item in items:
+            if item and item not in seen:
+                target.append(item)
+                seen.add(item)
 
     @staticmethod
     def _integer(value: object, fallback: int) -> int:

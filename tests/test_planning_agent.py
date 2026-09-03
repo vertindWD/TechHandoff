@@ -175,6 +175,85 @@ class PlanningAgentTests(unittest.TestCase):
 
         self.assertEqual(len(result.recommendations), 6)
 
+    def test_agent_accumulates_large_results_in_verified_batches(self) -> None:
+        files = tuple(
+            SourceFile(
+                f"backend/module_{index:03d}.py",
+                (
+                    f"# RESULT_GROUP_{'A' if index < 50 else 'B'}\n"
+                    f"def change_target_{index}():\n"
+                    f"    return {index}\n"
+                ),
+            )
+            for index in range(100)
+        )
+        changes = [
+            {
+                "path": source.path,
+                "line_start": 2,
+                "line_end": 3,
+                "symbol": f"change_target_{index}",
+                "instruction": f"调整独立模块 {index + 1}。",
+                "confidence": "verified",
+            }
+            for index, source in enumerate(files)
+        ]
+        tests = [f"测试场景 {index}" for index in range(20)]
+        risks = [f"风险 {index}" for index in range(20)]
+        unknowns = [f"待确认 {index}" for index in range(20)]
+        model = ScriptedModel(
+            [
+                {
+                    "action": "search_code",
+                    "pattern": "RESULT_GROUP_A",
+                    "max_results": 80,
+                },
+                {
+                    "action": "search_code",
+                    "pattern": "RESULT_GROUP_B",
+                    "max_results": 80,
+                },
+                {
+                    "action": "record_requirements",
+                    "requirement": {
+                        "business_goal": "调整大型后端项目",
+                        "requested_changes": ["覆盖全部独立模块"],
+                        "acceptance_criteria": ["全部位置可追溯"],
+                        "unknowns": [],
+                    },
+                },
+                *[
+                    {
+                        "action": "record_changes",
+                        "changes": changes[start : start + 20],
+                    }
+                    for start in range(0, 100, 20)
+                ],
+                {"action": "record_tests", "tests": tests},
+                {
+                    "action": "record_risks",
+                    "risks": risks,
+                    "unknowns": unknowns,
+                },
+                {"action": "finalize"},
+            ]
+        )
+        tools = ReadOnlyRepositoryTools(files, "# repository map")
+
+        result = ReadOnlyPlanningAgent(model, max_steps=12).run(
+            self.project,
+            RepositorySnapshot("github:acme/orders", "large-1", len(files), 0),
+            "调整大型后端项目",
+            self.requirement,
+            (),
+            tools,
+        )
+
+        self.assertEqual(len(result.recommendations), 100)
+        self.assertEqual(len(result.suggested_tests), 20)
+        self.assertEqual(len(result.risks), 20)
+        self.assertEqual(len(result.requirement.unknowns), 20)
+
     def test_serena_tools_record_semantically_inspected_paths(self) -> None:
         class Semantic:
             def symbols_overview(self, path, depth=0):
