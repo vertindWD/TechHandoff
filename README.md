@@ -412,6 +412,7 @@ DASHSCOPE_API_KEY=sk-xxx
 
 不传 --output 时，方案写入 data/proposals/local-test-latest.md。如已配置
 MODEL_NAME 和对应 API Key，会使用模型调查代码；未配置模型时使用离线规则生成。
+会议纪要支持 UTF-8 文本文件和 DOCX 文档。
 
 除 GitHub 外，也可以读取本机仓库。先配置允许读取的根目录：
 

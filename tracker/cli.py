@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import zipfile
 from dataclasses import replace
 from pathlib import Path
+from xml.etree import ElementTree
 
 from .config import Settings
 from .models import Project
@@ -13,6 +15,26 @@ from .service import TrackerService
 
 def _settings() -> Settings:
     return Settings.from_env()
+
+
+def _read_notes_file(path: Path) -> str:
+    if path.suffix.casefold() != ".docx":
+        return path.read_text(encoding="utf-8-sig")
+    try:
+        with zipfile.ZipFile(path) as document:
+            xml = document.read("word/document.xml")
+        root = ElementTree.fromstring(xml)
+    except (OSError, KeyError, zipfile.BadZipFile, ElementTree.ParseError) as exc:
+        raise SystemExit(f"无法读取 DOCX 会议纪要：{path}：{exc}") from exc
+    namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    paragraphs = []
+    for paragraph in root.iter(f"{namespace}p"):
+        text = "".join(node.text or "" for node in paragraph.iter(f"{namespace}t")).strip()
+        if text:
+            paragraphs.append(text)
+    if not paragraphs:
+        raise SystemExit(f"DOCX 会议纪要没有可读取的正文：{path}")
+    return "\n".join(paragraphs)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -88,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         service.register_project(project)
         proposal = service.generate_proposal(
             project.project_id,
-            notes_path.read_text(encoding="utf-8"),
+            _read_notes_file(notes_path),
             f"本地文件 {notes_path.name}",
         )
         output_path = (
