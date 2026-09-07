@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from .config import Settings
@@ -39,6 +40,12 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--notes-file", required=True)
     generate.add_argument("--publish-to-feishu", action="store_true")
 
+    local = sub.add_parser("local", help="读取本地代码和会议纪要，直接生成本地方案")
+    local.add_argument("--repo", required=True, help="本地代码仓库目录")
+    local.add_argument("--notes-file", required=True, help="会议纪要文本文件")
+    local.add_argument("--output", help="可选：将 Markdown 方案另存到指定路径")
+    local.add_argument("--name", default="本地测试项目", help="方案中显示的项目名称")
+
     sync = sub.add_parser("sync-github", help="同步 GitHub 仓库到本地增量索引")
     sync.add_argument("--project", required=True)
     sync.add_argument("--commit-sha", default="")
@@ -66,6 +73,44 @@ def main(argv: list[str] | None = None) -> int:
     settings = _settings()
     if args.command == "serve":
         run_server(settings, args.host, args.port)
+        return 0
+
+    if args.command == "local":
+        repo = Path(args.repo).expanduser().resolve()
+        notes_path = Path(args.notes_file).expanduser().resolve()
+        if not repo.is_dir():
+            raise SystemExit(f"代码目录不存在：{repo}")
+        if not notes_path.is_file():
+            raise SystemExit(f"会议纪要文件不存在：{notes_path}")
+        settings = replace(settings, allowed_repo_roots=(repo, *settings.allowed_repo_roots))
+        service = TrackerService(settings)
+        project = Project(project_id="local-test", name=args.name, repo_path=str(repo))
+        service.register_project(project)
+        proposal = service.generate_proposal(
+            project.project_id,
+            notes_path.read_text(encoding="utf-8"),
+            f"本地文件 {notes_path.name}",
+        )
+        output_path = (
+            Path(args.output).expanduser().resolve()
+            if args.output
+            else Path(proposal.output_path)
+        )
+        if args.output:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(proposal.markdown, encoding="utf-8")
+        print(
+            json.dumps(
+                {
+                    "status": "ok",
+                    "project": project.name,
+                    "repository_version": proposal.repository_version,
+                    "output_path": str(output_path),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 0
 
     service = TrackerService(settings)

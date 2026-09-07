@@ -404,6 +404,15 @@ DASHSCOPE_API_KEY=sk-xxx
 
 ## 本地仓库模式
 
+### 单命令本地测试
+
+不连接飞书和 GitHub，直接读取本地代码目录与会议纪要文件：
+
+    .venv/bin/python -m tracker local --repo /path/to/project +      --notes-file /path/to/meeting-notes.txt +      --output /path/to/proposal.md
+
+不传 --output 时，方案写入 data/proposals/local-test-latest.md。如已配置
+MODEL_NAME 和对应 API Key，会使用模型调查代码；未配置模型时使用离线规则生成。
+
 除 GitHub 外，也可以读取本机仓库。先配置允许读取的根目录：
 
 ```dotenv
