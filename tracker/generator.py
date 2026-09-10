@@ -172,14 +172,25 @@ def build_manager_proposal(
     risks: tuple[str, ...],
     analysis_steps: tuple[str, ...],
     source_label: str,
+    complete: bool = True,
+    termination_reason: str = "",
+    covered_requirements: tuple[str, ...] = (),
+    uncovered_requirements: tuple[str, ...] = (),
+    investigation_metrics: dict[str, object] | None = None,
 ) -> Proposal:
     """Render the short handoff a technical manager would give an engineer."""
     now = datetime.now(UTC).replace(microsecond=0)
     proposal_id = uuid4().hex[:16]
+    metrics = investigation_metrics or {}
+    status_line = (
+        "> 状态：未完成方案。调查预算已耗尽，仅保留经过校验的阶段性结果；不能视为完整实施范围。"
+        if not complete
+        else "> 只读调查结果：未修改代码、未运行测试、未创建分支或 PR。研发实施前请复核。"
+    )
     lines = [
         f"# {project.name}技术改动建议",
         "",
-        "> 只读调查结果：未修改代码、未运行测试、未创建分支或 PR。研发实施前请复核。",
+        status_line,
         "",
         "## 需求",
         "",
@@ -188,6 +199,22 @@ def build_manager_proposal(
     ]
     if requirement.requested_changes:
         lines.extend(f"- {item}" for item in requirement.requested_changes)
+        lines.append("")
+
+    if not complete:
+        lines.extend(["## 调查覆盖情况", ""])
+        lines.append("### 已覆盖")
+        if covered_requirements:
+            lines.extend(f"- {item}" for item in covered_requirements)
+        else:
+            lines.append("- 尚无可安全声明为完整覆盖的需求；下方仅列出已确认的局部改动位置。")
+        lines.extend(["", "### 未覆盖或仍待调查"])
+        if uncovered_requirements:
+            lines.extend(f"- {item}" for item in uncovered_requirements)
+        else:
+            lines.append("- 需要继续核对剩余业务链路和影响范围。")
+        if termination_reason:
+            lines.extend(["", f"- 结束原因：{termination_reason}"])
         lines.append("")
 
     lines.extend(["## 建议改动位置", ""])
@@ -206,6 +233,14 @@ def build_manager_proposal(
             )
     else:
         lines.append("- 没有得到足够可信的位置；本次结果不能直接交给研发实施。")
+
+    if not complete and evidence:
+        lines.extend(["", "### 已确认依据", ""])
+        for item in evidence:
+            symbol = f"，符号 `{item.symbols[0]}`" if item.symbols else ""
+            lines.append(
+                f"- `{item.path}:{item.line_start}-{item.line_end}`{symbol}：本次调查已读取并通过位置校验。"
+            )
 
     lines.extend(["", "## 测试与验收", ""])
     tests = tuple(dict.fromkeys((*suggested_tests, *requirement.acceptance_criteria)))
@@ -234,6 +269,15 @@ def build_manager_proposal(
     )
     if analysis_steps:
         lines.append(f"- 只读调查步骤：{' → '.join(analysis_steps)}")
+    if metrics:
+        lines.extend(
+            [
+                f"- 调查耗时：{metrics.get('elapsed_seconds', 0)} 秒",
+                f"- 模型调用：{metrics.get('model_calls', 0)} 次；只读查询：{metrics.get('tool_calls', 0)} 次",
+                f"- 重复查询：{metrics.get('duplicate_queries', 0)} 次",
+                f"- 需求覆盖：{metrics.get('covered_requirement_count', 0)}/{metrics.get('requirement_count', 0)}",
+            ]
+        )
     lines.append("")
 
     return Proposal(
@@ -249,5 +293,9 @@ def build_manager_proposal(
         suggested_tests=suggested_tests,
         risks=risks,
         analysis_steps=analysis_steps,
+        covered_requirements=covered_requirements,
+        uncovered_requirements=uncovered_requirements,
+        investigation_metrics=metrics,
+        status="draft" if complete else "partial",
         markdown="\n".join(lines),
     )

@@ -9,6 +9,19 @@ from tracker.config import Settings
 
 
 class SettingsTests(unittest.TestCase):
+    def test_large_agent_budgets_are_not_clipped_to_100_steps(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "missing.env"
+            with patch.dict(
+                "os.environ",
+                {"AGENT_MAX_STEPS": "300", "AGENT_MAX_SECONDS": "2400"},
+                clear=True,
+            ):
+                settings = Settings.from_env(env_file)
+
+        self.assertEqual(settings.agent_max_steps, 300)
+        self.assertEqual(settings.agent_max_seconds, 2400)
+
     def test_model_can_use_provider_specific_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             env_file = Path(temp_dir) / "missing.env"

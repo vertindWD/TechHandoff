@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from tracker.code_tools import ReadOnlyRepositoryTools, ReadOnlyToolError
+from tracker.generator import build_manager_proposal
 from tracker.models import Project, RepositorySnapshot, Requirement
 from tracker.planning_agent import ReadOnlyPlanningAgent
 from tracker.repository import SourceFile
@@ -122,6 +123,131 @@ class PlanningAgentTests(unittest.TestCase):
         with self.assertRaises(ReadOnlyToolError):
             tools.execute({"action": "read_file", "path": "../.env"})
 
+    def test_step_budget_returns_verified_partial_result_and_metrics(self) -> None:
+        change = {
+            "path": "backend/api/orders.py",
+            "line_start": 3,
+            "line_end": 4,
+            "symbol": "resend_order_notification",
+            "instruction": "复用通知服务增加订单重发入口。",
+            "confidence": "verified",
+        }
+        model = ScriptedModel(
+            [
+                {
+                    "action": "read_file",
+                    "path": "backend/api/orders.py",
+                    "start_line": 1,
+                    "end_line": 20,
+                },
+                {"action": "record_changes", "changes": [change]},
+                {
+                    "action": "read_file",
+                    "path": "backend/api/orders.py",
+                    "start_line": 1,
+                    "end_line": 20,
+                },
+                {"action": "record_tests", "tests": ["覆盖重发成功和失败场景。"]},
+            ]
+        )
+        tools = ReadOnlyRepositoryTools(self.files, "# repository map")
+
+        result = ReadOnlyPlanningAgent(model, max_steps=4, max_seconds=300).run(
+            self.project,
+            self.snapshot,
+            "增加重新发送通知接口",
+            self.requirement,
+            (),
+            tools,
+        )
+
+        self.assertFalse(result.complete)
+        self.assertIn("步数预算", result.termination_reason)
+        self.assertEqual(len(result.recommendations), 1)
+        self.assertEqual(result.recommendations[0].confidence, "verified")
+        self.assertEqual(result.uncovered_requirements, self.requirement.requested_changes)
+        self.assertIn("尚待调查：增加重新发送通知接口", result.requirement.unknowns)
+        self.assertEqual(result.metrics["model_calls"], 4)
+        self.assertEqual(result.metrics["tool_calls"], 2)
+        self.assertEqual(result.metrics["duplicate_queries"], 1)
+        self.assertTrue(
+            any(
+                "CLOSING_BUDGET_NOTICE" in message["content"]
+                for message in model.messages[-1]
+            )
+        )
+        proposal = build_manager_proposal(
+            self.project,
+            self.snapshot,
+            result.requirement,
+            result.recommendations,
+            result.evidence,
+            result.suggested_tests,
+            result.risks,
+            result.analysis_steps,
+            "测试",
+            complete=result.complete,
+            termination_reason=result.termination_reason,
+            covered_requirements=result.covered_requirements,
+            uncovered_requirements=result.uncovered_requirements,
+            investigation_metrics=result.metrics,
+        )
+        self.assertEqual(proposal.status, "partial")
+        self.assertIn("未完成方案", proposal.markdown)
+        self.assertIn("调查覆盖情况", proposal.markdown)
+        self.assertEqual(proposal.investigation_metrics["model_calls"], 4)
+
+    def test_time_budget_returns_recorded_partial_result(self) -> None:
+        now = [0.0]
+
+        class TimedModel(ScriptedModel):
+            def complete_json(self, messages, temperature=0.1):
+                result = super().complete_json(messages, temperature)
+                if len(self.messages) == 2:
+                    now[0] = 31.0
+                return result
+
+        model = TimedModel(
+            [
+                {
+                    "action": "read_file",
+                    "path": "backend/api/orders.py",
+                    "start_line": 1,
+                    "end_line": 20,
+                },
+                {
+                    "action": "record_changes",
+                    "changes": [
+                        {
+                            "path": "backend/api/orders.py",
+                            "line_start": 3,
+                            "line_end": 4,
+                            "symbol": "resend_order_notification",
+                            "instruction": "增加订单重发入口。",
+                        }
+                    ],
+                },
+            ]
+        )
+        result = ReadOnlyPlanningAgent(
+            model,
+            max_steps=20,
+            max_seconds=30,
+            clock=lambda: now[0],
+        ).run(
+            self.project,
+            self.snapshot,
+            "增加重新发送通知接口",
+            self.requirement,
+            (),
+            ReadOnlyRepositoryTools(self.files, "# repository map"),
+        )
+
+        self.assertFalse(result.complete)
+        self.assertIn("耗时预算", result.termination_reason)
+        self.assertEqual(len(result.recommendations), 1)
+        self.assertEqual(result.metrics["elapsed_seconds"], 31.0)
+
     def test_agent_keeps_more_than_five_verified_recommendations(self) -> None:
         files = tuple(
             SourceFile(
@@ -234,6 +360,11 @@ class PlanningAgentTests(unittest.TestCase):
                     "action": "record_risks",
                     "risks": risks,
                     "unknowns": unknowns,
+                },
+                {
+                    "action": "record_coverage",
+                    "covered_requirements": ["覆盖全部独立模块"],
+                    "uncovered_requirements": [],
                 },
                 {"action": "finalize"},
             ]

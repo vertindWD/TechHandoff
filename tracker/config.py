@@ -57,7 +57,8 @@ class Settings:
     feishu_allowed_chat_ids: tuple[str, ...]
     feishu_allowed_user_ids: tuple[str, ...]
     public_base_url: str
-    agent_max_steps: int = 40
+    agent_max_steps: int = 300
+    agent_max_seconds: int = 1800
     feishu_bots_file: Path | None = None
     semantic_enabled: bool = False
     semantic_data_dir: Path | None = None
@@ -101,7 +102,10 @@ class Settings:
             feishu_allowed_chat_ids=_csv(os.getenv("FEISHU_ALLOWED_CHAT_IDS", "")),
             feishu_allowed_user_ids=_csv(os.getenv("FEISHU_ALLOWED_USER_IDS", "")),
             public_base_url=os.getenv("PUBLIC_BASE_URL", "").rstrip("/"),
-            agent_max_steps=max(4, min(int(os.getenv("AGENT_MAX_STEPS", "40")), 100)),
+            # The step budget is intentionally not capped here. Deployments choose
+            # their own finite budget; the time budget remains the second guardrail.
+            agent_max_steps=max(4, int(os.getenv("AGENT_MAX_STEPS", "300"))),
+            agent_max_seconds=max(1, int(os.getenv("AGENT_MAX_SECONDS", "1800"))),
             feishu_bots_file=Path(bots_value).resolve() if bots_value else None,
             semantic_enabled=_boolean(os.getenv("SEMANTIC_ENABLED", "true")),
             semantic_data_dir=Path(os.getenv("SEMANTIC_DATA_DIR", "data/semantic")).resolve(),

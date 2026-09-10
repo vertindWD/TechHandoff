@@ -66,6 +66,7 @@ class TrackerService:
             ReadOnlyPlanningAgent(
                 self.model,
                 max_steps=self.settings.agent_max_steps,
+                max_seconds=self.settings.agent_max_seconds,
                 progress=lambda message: print(f"[只读调查] {message}", flush=True),
             )
             if self.model
@@ -302,6 +303,11 @@ class TrackerService:
                 outcome.risks,
                 outcome.analysis_steps,
                 source_label,
+                complete=outcome.complete,
+                termination_reason=outcome.termination_reason,
+                covered_requirements=outcome.covered_requirements,
+                uncovered_requirements=outcome.uncovered_requirements,
+                investigation_metrics=outcome.metrics,
             )
         else:
             # Deterministic offline compatibility mode for local examples and tests.
@@ -324,7 +330,9 @@ class TrackerService:
             publisher.append_markdown(document.document_id, proposal.markdown)
             proposal.feishu_document_id = document.document_id
             proposal.feishu_document_url = document.url
-            proposal.status = "published"
+            proposal.status = (
+                "partial_published" if proposal.status == "partial" else "published"
+            )
         return proposal
 
     def search_memory(self, project_id: str, query: str, limit: int = 8) -> tuple[dict, ...]:

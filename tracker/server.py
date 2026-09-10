@@ -179,12 +179,17 @@ class TrackerApplication:
             job.proposal_id = proposal.proposal_id
             job.metadata["output_path"] = proposal.output_path
             job.metadata["feishu_document_url"] = proposal.feishu_document_url
+            job.metadata["proposal_status"] = proposal.status
+            job.metadata["investigation_metrics"] = proposal.investigation_metrics
+            job.metadata["covered_requirements"] = list(proposal.covered_requirements)
+            job.metadata["uncovered_requirements"] = list(proposal.uncovered_requirements)
             if chat_id and feishu:
                 target = proposal.feishu_document_url or proposal.output_path
                 unknown_count = len(proposal.requirement.unknowns)
+                result_label = "未完成方案" if proposal.status.startswith("partial") else "技术方案"
                 feishu.send_text(
                     chat_id,
-                    f"技术方案已生成：{proposal.project_name}\n{target}\n"
+                    f"{result_label}已生成：{proposal.project_name}\n{target}\n"
                     f"代码版本：{proposal.repository_version}\n待确认问题：{unknown_count} 项",
                 )
             print(

@@ -156,6 +156,9 @@ class Proposal:
     suggested_tests: tuple[str, ...] = ()
     risks: tuple[str, ...] = ()
     analysis_steps: tuple[str, ...] = ()
+    covered_requirements: tuple[str, ...] = ()
+    uncovered_requirements: tuple[str, ...] = ()
+    investigation_metrics: dict[str, Any] = field(default_factory=dict)
     status: str = "draft"
     output_path: str = ""
     feishu_document_id: str = ""
@@ -175,6 +178,9 @@ class Proposal:
             "suggested_tests": list(self.suggested_tests),
             "risks": list(self.risks),
             "analysis_steps": list(self.analysis_steps),
+            "covered_requirements": list(self.covered_requirements),
+            "uncovered_requirements": list(self.uncovered_requirements),
+            "investigation_metrics": dict(self.investigation_metrics),
             "status": self.status,
             "output_path": self.output_path,
             "feishu_document_id": self.feishu_document_id,
